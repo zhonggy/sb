@@ -87,6 +87,24 @@ function looksLikeNetscape(text) {
   return lines.every(l => l.split('\t').length >= 7 && /^(TRUE|FALSE)\t/i.test(l.split('\t')[1] + '\t'));
 }
 
+/** 解析 Chrome DevTools 的「Copy as cURL」命令中的 Cookie 请求头 */
+function parseCurlCookie(text) {
+  const out = [];
+  const re = /(?:^|\s)(?:-H|--header)\s+(['"])\s*cookie\s*:\s*([\s\S]*?)\1/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    for (const part of m[2].split(';')) {
+      const i = part.indexOf('=');
+      if (i <= 0) continue;
+      const name = part.slice(0, i).trim();
+      const value = part.slice(i + 1).trim();
+      if (!name) continue;
+      out.push({ name, value, domain: STUDENTBEANS_DOMAIN, path: '/', secure: true, httpOnly: false });
+    }
+  }
+  return out;
+}
+
 /** 主入口：input 可以是 string / array / {cookies:[...]} */
 function parseCookies(input) {
   const warnings = [];
@@ -116,6 +134,11 @@ function parseCookies(input) {
     if (!cookies.length && looksLikeNetscape(text)) {
       format = 'netscape';
       cookies = parseNetscape(text);
+    }
+    // Chrome DevTools「Copy as cURL」命令（含 -H 'cookie: ...'）——必须早于通用请求头解析
+    if (!cookies.length && /\bcurl\b/i.test(text) && /(?:-H|--header)\s+['"]/i.test(text)) {
+      format = 'curl';
+      cookies = parseCurlCookie(text);
     }
     if (!cookies.length && /[^=;\s]+=[^;]/.test(text)) {
       format = 'header';
