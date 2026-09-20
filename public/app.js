@@ -74,7 +74,7 @@ function renderAccounts() {
         <span class="email">${a.label || a.email}</span>
         ${statusBadge(a.lastStatus)}
       </div>
-      <div class="meta">${a.email} · ${a.hasCookies ? '已导入Cookie' : (a.passwordSet ? '密码登录' : '无凭据')} · 最近: ${fmtTime(a.lastRunAt)}</div>
+      <div class="meta">${a.email} · ${a.hasCookies ? '已导入Cookie(' + (a.cookieCount || 0) + '条)' : (a.passwordSet ? '密码登录' : '无凭据')} · 最近: ${fmtTime(a.lastRunAt)}</div>
       ${a.lastError ? `<div class="meta" style="color:var(--red)">${a.lastError}</div>` : ''}
       <div class="ops">
         <button class="btn small primary" data-act="run">▶ 运行</button>
@@ -176,20 +176,66 @@ async function runAccount(id) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-async function importCookies(a) {
-  const text = prompt(
-    `粘贴账号「${a.label || a.email}」的 Student Beans Cookie（JSON 数组）。\n` +
-    `获取方法：浏览器登录 Student Beans 后，F12 → Network → 任一请求 → Request Headers → Cookie，\n` +
-    `或用编辑ookie的扩展导出为 JSON。粘贴形如：\n` +
-    `[{"name":"...","value":"...","domain":".studentbeans.com","path":"/"}]`);
-  if (!text) return;
+/* ---------- Cookie 导入弹窗 ---------- */
+let cookieAccId = null;
+
+function openCookieModal(a) {
+  cookieAccId = a.id;
+  $('#cookie-modal-acc').textContent = `（${a.label || a.email}）`;
+  $('#cookie-input').value = '';
+  $('#cookie-preview').innerHTML = a.cookieCount
+    ? `<span class="warn">当前已导入 ${a.cookieCount} 条 Cookie（重新粘贴保存可覆盖）</span>` : '';
+  $('#cookie-modal').classList.remove('hidden');
+}
+function closeCookieModal() {
+  $('#cookie-modal').classList.add('hidden');
+  cookieAccId = null;
+}
+
+$('#cookie-cancel').addEventListener('click', closeCookieModal);
+
+$('#cookie-parse').addEventListener('click', async () => {
+  const text = $('#cookie-input').value.trim();
+  if (!text) return toast('请先粘贴 Cookie', 'error');
   try {
-    let parsed = JSON.parse(text.trim());
-    if (!Array.isArray(parsed)) parsed = parsed.cookies;
-    const r = await api('/api/accounts/' + a.id + '/cookies', { method: 'POST', body: { cookies: parsed } });
-    toast(`已导入 ${r.count} 条 Cookie`, 'ok');
+    const r = await api(`/api/accounts/${cookieAccId}/cookies/parse`, { method: 'POST', body: { text } });
+    const fmtName = { header: 'Cookie 请求头', json: 'JSON', netscape: 'cookies.txt' }[r.format] || r.format;
+    const p = $('#cookie-preview');
+    if (r.ok) {
+      p.innerHTML = `<span class="ok">✓ 识别为${fmtName}，共 ${r.count} 条` +
+        (r.sessionLikeCount
+          ? `，其中 <b>${r.sessionLikeCount} 条疑似会话 Cookie</b>（${r.sessionLikeNames.slice(0, 3).join(', ')}）`
+          : '') + '</span>' +
+        (r.warnings && r.warnings.length ? `<br><span class="warn">⚠ ${r.warnings.join('；')}</span>` : '');
+    } else {
+      p.innerHTML = `<span class="err">✗ ${(r.warnings || []).join('；') || '未解析到 Cookie'}</span>`;
+    }
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+$('#cookie-save').addEventListener('click', async () => {
+  const text = $('#cookie-input').value.trim();
+  if (!text) return toast('请先粘贴 Cookie', 'error');
+  try {
+    const r = await api(`/api/accounts/${cookieAccId}/cookies`, { method: 'POST', body: { text } });
+    toast(`已导入 ${r.count} 条 Cookie${r.sessionLikeCount ? `（含 ${r.sessionLikeCount} 条会话 Cookie）` : ''}，下次运行将优先使用`, 'ok');
+    closeCookieModal();
     bootstrap();
-  } catch (e) { toast('Cookie 解析失败: ' + e.message, 'error'); }
+  } catch (e) { toast('导入失败: ' + e.message, 'error'); }
+});
+
+$('#cookie-clear').addEventListener('click', async () => {
+  if (!cookieAccId) return;
+  try {
+    await api(`/api/accounts/${cookieAccId}/cookies`, { method: 'DELETE' });
+    toast('已清除导入的 Cookie', 'ok');
+    closeCookieModal();
+    bootstrap();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+async function importCookies(a) {
+  openCookieModal(a);
 }
 
 async function editAccount(a) {

@@ -115,6 +115,29 @@
   </main>
 
   <div id="toast-root"></div>
+
+  <!-- Cookie 导入弹窗 -->
+  <div id="cookie-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3>🍪 导入 Cookie <span id="cookie-modal-acc" class="muted"></span></h3>
+      <p class="hint"><b>推荐方式</b>（能拿到含 httpOnly 的完整会话 Cookie）：</p>
+      <ol class="hint">
+        <li>在<b>自己电脑的浏览器</b>登录 <code>www.studentbeans.com</code></li>
+        <li>按 <code>F12</code> → <b>Network</b> → 刷新页面 → 点任意一条 <code>studentbeans.com</code> 请求</li>
+        <li>右侧 <b>Request Headers</b> 找到 <code>Cookie:</code>，复制冒号后<b>整串</b>，粘贴到下面</li>
+      </ol>
+      <p class="hint">也支持：Cookie 编辑器扩展导出的 JSON、<code>cookies.txt</code> 文件内容（自动识别）</p>
+      <textarea id="cookie-input" rows="6" placeholder="sb_session=xxxx; _ga=GA1.2.xxx; ..."></textarea>
+      <div id="cookie-preview" class="cookie-preview"></div>
+      <div class="row">
+        <button id="cookie-parse" class="btn">解析预览</button>
+        <button id="cookie-save" class="btn primary">保存并启用</button>
+        <button id="cookie-cancel" class="btn ghost">取消</button>
+        <button id="cookie-clear" class="btn danger">清除已导入</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@ const store = require('./store');
 const jobRunner = require('./jobRunner');
 const scheduler = require('./scheduler');
 const { bus, maskAccount, toCsv } = require('./utils');
+const { parseCookies } = require('./cookieParser');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -107,22 +108,40 @@ app.delete('/api/accounts/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-/** 导入 Cookie（跳过登录，兜底邮箱验证场景） */
+/** 解析预览（不保存）：前端粘贴后先调这个验证格式 */
+app.post('/api/accounts/:id/cookies/parse', (req, res) => {
+  const input = req.body && (req.body.text != null ? req.body.text : req.body.cookies);
+  const parsed = parseCookies(input);
+  res.json({
+    ok: parsed.count > 0,
+    format: parsed.format,
+    count: parsed.count,
+    names: parsed.names,
+    warnings: parsed.warnings,
+    sessionLikeCount: parsed.sessionLikeCount,
+    sessionLikeNames: parsed.sessionLikeNames,
+  });
+});
+
+/** 导入 Cookie（跳过密码登录，兜底 Turnstile/邮箱验证场景）
+ *  支持：DevTools Cookie 请求头字符串 / Cookie 编辑器 JSON / cookies.txt / JSON 数组
+ */
 app.post('/api/accounts/:id/cookies', (req, res) => {
   const acc = store.getAccount(req.params.id);
   if (!acc) return res.status(404).json({ error: '账号不存在' });
-  const raw = req.body && req.body.cookies;
-  if (!Array.isArray(raw) || !raw.length) return res.status(400).json({ error: 'cookies 必须是数组' });
-  // 归一化：确保每条有 domain/path 或 url
-  const cookies = [];
-  for (const c of raw) {
-    if (!c || !c.name || c.value == null) continue;
-    if (!c.domain && !c.url) c.url = 'https://www.studentbeans.com';
-    if (!c.path) c.path = '/';
-    cookies.push(c);
+  const input = req.body && (req.body.text != null ? req.body.text : req.body.cookies);
+  const parsed = parseCookies(input);
+  if (!parsed.count) {
+    return res.status(400).json({ error: '未解析到有效 Cookie', warnings: parsed.warnings });
   }
-  store.updateAccount(acc.id, { cookies });
-  res.json({ ok: true, count: cookies.length });
+  store.updateAccount(acc.id, { cookies: parsed.cookies });
+  res.json({
+    ok: true,
+    count: parsed.count,
+    format: parsed.format,
+    warnings: parsed.warnings,
+    sessionLikeCount: parsed.sessionLikeCount,
+  });
 });
 
 app.delete('/api/accounts/:id/cookies', (req, res) => {

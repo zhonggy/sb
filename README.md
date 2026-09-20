@@ -16,7 +16,7 @@
 | 🔗 链接捕获 | "open site" 新标签页的最终跳转链接（指向 voxi.co.uk） |
 | 🖥️ 实时日志 | SSE 推送，浏览器无需刷新即可看到每一步 |
 | 💾 会话复用 | 每账号独立浏览器 profile，登录成功后 Cookie 持久化，下次免登录 |
-| 🍪 Cookie 导入 | 新 IP/新设备触发邮箱验证时，可绕过密码直接导入 Cookie |
+| 🍪 Cookie 导入 | 手动登录一次拿 Cookie 导入，彻底绕过 Turnstile 人机验证（支持 DevTools 请求头/JSON/cookies.txt 自动识别） |
 | ⏰ 定时任务 | Cron 表达式自动跑全部账号 |
 | 📤 导出 | 结果导出 CSV（Excel 兼容）/ JSON |
 | 📸 失败截图 | 关键步骤自动截图存档，便于排查 |
@@ -61,7 +61,19 @@ npm start                                      # 默认 http://localhost:3920
 - **新 IP / 新设备首次登录**，Student Beans 可能要求点击**邮件验证链接**。此时任务状态会显示 `待验证`：
   1. 去邮箱点击验证链接完成验证；
   2. 回到控制台重新点 `▶ 运行` 即可（会话 profile 已保留现场）。
-- 如长期卡在验证，可在自己电脑浏览器登录后，用 「导入Cookie」 按钮粘贴 Cookie（JSON 数组）跳过登录。
+- 如长期卡在验证，可在自己电脑浏览器登录后，用 「导入Cookie」 按钮粘贴 Cookie 跳过登录。
+
+### 🍪 手动登录一次，导入 Cookie（推荐，彻底绕过人机验证）
+
+自动登录会被 Cloudflare Turnstile 拦截时，用手动登录拿到的 Cookie 最稳：
+
+1. 在**自己电脑的浏览器**登录 `www.studentbeans.com`
+2. `F12` → **Network** → 刷新页面 → 点任意一条 `studentbeans.com` 请求
+3. **Request Headers** 里找到 `Cookie:`，复制冒号后**整串**
+4. 控制台账号卡片点 「导入Cookie」→ 粘贴 → 「解析预览」（应提示识别到 N 条、含会话 Cookie）→ 「保存并启用」
+5. 点「▶ 运行」——有 Cookie 时优先走 Cookie，无效才回退密码登录
+
+也支持 Cookie 编辑器扩展导出的 JSON、`cookies.txt` 文件内容，粘贴时自动识别。
 
 ## 🏗️ 架构
 
@@ -141,7 +153,7 @@ A: 这是 **Cloudflare Turnstile 人机验证**未通过（国内 IP + 无头环
 1. 把服务器放在**英国/海外**（Student Beans 对地区敏感，且 Turnstile 对住宅 IP 通过率高）
 2. 设 `PROXY_URL` 走住宅代理
 3. `HEADLESS=false` 接 VNC 手动过一次验证，profile 会记住会话
-4. 终极方案：在自己电脑浏览器登录后，用「导入Cookie」粘贴 Cookie
+4. 终极方案（最稳）：在自己电脑浏览器登录后，用「导入Cookie」粘贴 Cookie（见上文手动登录教程），完全不走自动登录
 
 **Q: 日志显示「登录成功」但点击优惠码又被弹回登录页？**
 A: 旧版本曾因 OAuth 回调中间页（无导航栏）误判登录态。新版已加「功能校验」：登录后会真实访问一次优惠页确认会话有效，无效则明确报错并保存 `session-verify-fail.png` + Cookie 诊断日志。若遇到此报错，请把日志里「诊断 Cookie」那几行发给我。

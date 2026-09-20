@@ -32,6 +32,7 @@ function maskAccount(a) {
     id: a.id, label: a.label, email: a.email,
     passwordSet: !!a.password,
     hasCookies: Array.isArray(a.cookies) && a.cookies.length > 0,
+    cookieCount: Array.isArray(a.cookies) ? a.cookies.length : 0,
     createdAt: a.createdAt, lastRunAt: a.lastRunAt, lastStatus: a.lastStatus, lastError: a.lastError,
   };
 }
