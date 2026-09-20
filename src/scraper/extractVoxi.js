@@ -1,29 +1,26 @@
 /**
- * Voxi 优惠码提取（基于实测 DOM）：
- *  - 揭示按钮: div[data-testid="offer-issuance-button"] 内的 button/a（每卡片一个，精确定位）
- *  - 卡片标题: 按钮最近的 article 祖先的第一行文本
+ * Voxi 优惠码提取（基于用户实测的正确流程）：
  *
- * 点击 "Get code & open site" 后可能发生：
- *   ① 弹模态框显示优惠码   ② 复制到剪贴板   ③ 新标签页打开 VOXI 官网
- *   ④ 当前标签页直接跳转（登录态/未验证学生身份时尤其常见）
+ *  实际流程（2026-09 用户确认）：
+ *   1. 列表页每张卡片有 "Get code & open site" 按钮（共 4 个优惠）
+ *   2. 点击后【弹出新标签页】
+ *   3. 新标签页里显示优惠码（形如 STB274EA12TO0）
+ *   4. 新标签页里有 "Re-open the VOXI mobile website" 按钮——
+ *      这个按钮的链接才是要提取的正确链接
+ *   5. 关闭新标签页，回列表页，重复下一个
  *
- * 捕获手段（七路并取）：
- *   1. navigator.clipboard.writeText 劫持（init script）
- *   2. 模态框文本正则（点击后 3 秒快速轮询，抢在跳转前）
- *   3. 页面独立码元素扫描
- *   4. 新标签页 URL（window.open / popup 事件）
- *   5. 当前标签页 URL 变化（跳转前后对比）
- *   6. 网络响应 JSON 拦截（code/url 字段）
- *   7. 路由拦截：中止跳往外部站点的顶层导航——原页面（含模态框）保留，同时记录目标 URL
- * 每步都保存截图 + 页面全文文本，便于排查。
+ *  因此本模块以「新标签页」为捕获核心：
+ *   - 点击 → waitForEvent('popup') 等新标签页
+ *   - 在新标签页内：提取优惠码文本 + 找 re-open 按钮的链接
+ *   - 对新标签页截图 + 保存全文（排查证据）
+ *   - 关闭新标签页，重新打开列表页，处理下一张卡片
  */
 const config = require('../config');
 const { sleep, log, extractCodeFromText } = require('../utils');
 const { acceptCookies, forceRemoveOverlays } = require('./login');
 
-// 每张卡片一个 issuance 按钮（section 外层容器不会重复命中）
+// 每张卡片一个 issuance 按钮
 const BTN_SEL = 'div[data-testid="offer-issuance-button"] button, div[data-testid="offer-issuance-button"] a';
-// 站内域名白名单（这些域名的顶层导航放行：登录跳转等）
 const INTERNAL_HOST = /(^|\.)studentbeans\.com$/;
 
 async function saveArtifact(job, name, buffer, mime = 'text/plain') {
@@ -38,24 +35,40 @@ async function saveArtifact(job, name, buffer, mime = 'text/plain') {
   return { name, file, mime };
 }
 
-/** 快速捕获：clipboard + 模态框 + 码元素（点击后跳转前的窗口期） */
-async function quickCapture(page) {
-  const cap = await page.evaluate(() => ({
-    clips: (window.__clips || []).slice(-5),
-    opens: (window.__opens || []).slice(-5),
-    modals: [...document.querySelectorAll('[role="dialog"], [data-testid*="modal" i], [class*="modal" i], [class*="Modal"]')]
-      .filter(el => el.offsetWidth || el.offsetHeight)
-      .map(m => (m.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 500)),
-    codeEls: [...document.querySelectorAll('span, div, p, strong, b')]
-      .filter(el => el.children.length === 0 && (el.offsetWidth || el.offsetHeight) && /^[A-Z0-9]{4,16}$/.test((el.innerText || '').trim()))
-      .map(el => el.innerText.trim()).slice(0, 10),
-  })).catch(() => null);
-  if (!cap) return {};
-  let code = null, source = null;
-  if (cap.clips.length) { code = cap.clips[cap.clips.length - 1]; source = 'clipboard'; }
-  if (!code) for (const m of cap.modals) { const c = extractCodeFromText(m); if (c) { code = c; source = 'modal'; break; } }
-  if (!code && cap.codeEls.length) { code = cap.codeEls[0]; source = 'element'; }
-  return { code, source, clips: cap.clips, opens: cap.opens, modals: cap.modals };
+/** 从文本中提取优惠码：优先 STB 开头（Student Beans 码格式），再走通用规则 */
+function extractCode(text) {
+  if (!text) return null;
+  const m = String(text).match(/\bSTB[A-Z0-9]{6,14}\b/i);
+  if (m) return m[0].toUpperCase();
+  return extractCodeFromText(text);
+}
+
+/** 在新标签页里找「Re-open the VOXI mobile website」按钮的链接 */
+async function findReopenLink(popup) {
+  const link = await popup.evaluate(() => {
+    const els = [...document.querySelectorAll('a, button, [role="button"]')]
+      .filter(el => el.offsetWidth || el.offsetHeight || el.getBoundingClientRect().width);
+    // 1. 文本匹配 re-open / open the ... website / continue / visit
+    const byText = els.find(el => /re-?open|open the|continue|visit|go to|shop now|website/i.test((el.innerText || '').trim()));
+    const pick = el => {
+      if (!el) return null;
+      const href = el.href || el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-url') || '';
+      if (href && /^https?:/.test(href)) return href;
+      const oc = el.getAttribute('onclick') || '';
+      const m = oc.match(/https?:\/\/[^'")\s]+/);
+      if (m) return m[0];
+      return null;
+    };
+    const t = pick(byText);
+    if (t) return t;
+    // 2. 兜底：任何指向 voxi.co.uk 的链接
+    const voxi = els.find(el => /voxi\.co\.uk/i.test(el.href || ''));
+    if (voxi) return voxi.href;
+    // 3. 再兜底：页面里任意 voxi.co.uk 链接（含隐藏）
+    const anyVoxi = [...document.querySelectorAll('a[href*="voxi.co.uk"]')][0];
+    return anyVoxi ? anyVoxi.href : null;
+  }).catch(() => null);
+  return link;
 }
 
 async function extractVoxi(page, account, job, opts = {}) {
@@ -65,7 +78,7 @@ async function extractVoxi(page, account, job, opts = {}) {
   const stepDelay = opts.stepDelayMs != null ? opts.stepDelayMs : config.stepDelayMs;
   const listUrl = config.voxiPageUrl;
 
-  // ---- 网络响应拦截：捕获可能含优惠码/跳转链接的 JSON ----
+  // ---- 网络响应拦截（兜底：接口里可能直接带 code/url） ----
   const netHits = [];
   const onResponse = async res => {
     try {
@@ -82,29 +95,7 @@ async function extractVoxi(page, account, job, opts = {}) {
   };
   page.on('response', onResponse);
 
-  // ---- 路由拦截：中止跳往外部站点的顶层导航 ----
-  // 效果：点击 "open site" 后页面不会真的跳走，模态框（若有）保持可见；
-  // 同时把目标 URL 记下来，作为优惠的跳转链接。
-  const navUrls = [];
-  const onRoute = async route => {
-    try {
-      const req = route.request();
-      if (req.isNavigationRequest() && req.frame() === page.mainFrame()) {
-        const host = new URL(req.url()).hostname;
-        if (!INTERNAL_HOST.test(host)) {
-          navUrls.push(req.url());
-          return route.abort();
-        }
-      }
-    } catch (e) { /* noop */ }
-    return route.continue();
-  };
-  await page.route('**/*', onRoute);
-
-  const cleanup = () => {
-    page.off('response', onResponse);
-    page.unroute('**/*', onRoute).catch(() => {});
-  };
+  const cleanup = () => { page.off('response', onResponse); };
 
   const gotoList = async () => {
     await page.goto(listUrl, { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs });
@@ -117,7 +108,7 @@ async function extractVoxi(page, account, job, opts = {}) {
     log(job, 'info', `打开 VOXI 优惠页: ${listUrl}`);
     await gotoList();
 
-    // 若被踢回登录页则中止（登录态失效）
+    // 被踢回登录页 = 会话失效
     if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
       artifacts.push(await saveArtifact(job, 'redirected-login.png', await page.screenshot().catch(() => null), 'image/png'));
       return { results, artifacts, error: '访问 VOXI 页时被重定向到登录页，会话无效' };
@@ -138,10 +129,13 @@ async function extractVoxi(page, account, job, opts = {}) {
     for (let idx = 0; idx < limit; idx++) {
       if (job.cancelRequested) { log(job, 'warn', '任务被取消'); break; }
 
-      // 若上一轮发生了当前标签页跳转（路由未拦截成功时），先回到列表页
-      if (!page.url().startsWith('https://www.studentbeans.com/student-discount')) {
-        log(job, 'info', '返回优惠列表页…');
-        await gotoList();
+      // 每张卡片都重新打开列表页，确保页面状态干净
+      log(job, 'info', `[${idx + 1}/${limit}] 打开列表页…`);
+      await gotoList();
+
+      if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
+        artifacts.push(await saveArtifact(job, 'session-lost.png', await page.screenshot().catch(() => null), 'image/png'));
+        return { results, artifacts, error: '会话失效：访问优惠页被重定向到登录页' };
       }
 
       let btn;
@@ -153,7 +147,7 @@ async function extractVoxi(page, account, job, opts = {}) {
         continue;
       }
 
-      // 卡片标题：就近找 article 祖先，取其第一行非空文本
+      // 卡片标题
       let title = '';
       try {
         title = await btn.evaluate(el => {
@@ -177,13 +171,9 @@ async function extractVoxi(page, account, job, opts = {}) {
       seenTitles.add(title);
       log(job, 'info', `[${idx + 1}/${limit}] 处理: ${title.slice(0, 70)}`);
 
-      const beforeUrl = page.url();
-      const pagesBefore = page.context().pages().length;
-      const hitsBefore = netHits.length;
-      const navsBefore = navUrls.length;
-      await page.evaluate(() => { try { window.__clips = []; window.__opens = []; } catch (e) { /* noop */ } });
-
-      // 点击 Get code
+      // ---- 点击并等待新标签页 ----
+      let popup = null;
+      const popupPromise = page.waitForEvent('popup', { timeout: 20000 }).catch(() => null);
       try {
         await forceRemoveOverlays(page);
         await btn.scrollIntoViewIfNeeded({ timeout: 5000 });
@@ -197,63 +187,74 @@ async function extractVoxi(page, account, job, opts = {}) {
         continue;
       }
 
-      // ---- 快速捕获（点击后 3 秒窗口期，抢在跳转/关闭前） ----
-      let cap = {};
-      for (let t = 0; t < 20; t++) {
-        await sleep(150);
-        cap = await quickCapture(page);
-        if (cap.code) break;
-      }
-      await sleep(stepDelay);
-
-      let code = cap.code || null;
-      let url = null;
-      let source = cap.source || null;
-
-      // ---- 新标签页（open site） ----
-      const pages = page.context().pages();
-      for (let p = pages.length - 1; p >= pagesBefore; p--) {
-        const pg = pages[p];
-        if (pg === page) continue;
-        try {
-          await pg.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(() => {});
-          const u = pg.url();
-          if (u && /^https?:/.test(u)) url = u;
-        } catch (e) { /* noop */ }
-        await pg.close().catch(() => {});
-      }
-      if (!url && (cap.opens || []).length) url = cap.opens[cap.opens.length - 1];
-
-      // ---- 路由拦截记录的外部导航 URL ----
-      const navs = navUrls.slice(navsBefore);
-      if (!url && navs.length) { url = navs[navs.length - 1]; source = source || null; }
-
-      // ---- 当前标签页跳转（路由没拦成的情况） ----
-      const afterUrl = page.url();
-      if (afterUrl !== beforeUrl) {
-        if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(afterUrl)) {
-          const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
-          artifacts.push(await saveArtifact(job, `offer-${idx + 1}.txt`, bodyText));
-          artifacts.push(await saveArtifact(job, `offer-${idx + 1}.png`, await page.screenshot().catch(() => null), 'image/png'));
-          log(job, 'error', '点击后被重定向到登录页，会话已失效，终止本轮');
-          return { results, artifacts, error: '会话失效：点击后被重定向到登录页' };
+      popup = await popupPromise;
+      if (!popup) {
+        // 轮询兜底（有些浏览器/popup 事件时序差异）
+        for (let t = 0; t < 20 && !popup; t++) {
+          await sleep(500);
+          const pages = page.context().pages();
+          const fresh = pages.find(p => p !== page && !p.isClosed());
+          if (fresh && pages.length > 1) popup = fresh;
         }
-        url = url || afterUrl;
       }
 
-      // ---- 网络响应兜底 ----
-      const hits = netHits.slice(hitsBefore);
-      if (!code) for (const h of hits) { if (h.codes.length) { code = h.codes[0]; source = 'network'; break; } }
-      if (!url) for (const h of hits) { if (h.urls.length) { url = h.urls[0]; break; } }
+      let code = null;
+      let url = null;
+      let source = null;
 
-      // ---- 页面文本落盘（排查关键：能看到模态框/验证提示的原文） ----
-      const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
-      artifacts.push(await saveArtifact(job, `offer-${idx + 1}.txt`, bodyText));
-      artifacts.push(await saveArtifact(job, `offer-${idx + 1}.png`, await page.screenshot().catch(() => null), 'image/png'));
+      if (popup) {
+        log(job, 'info', '新标签页已打开，等待内容…');
+        await popup.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
+        // 等优惠码文本出现（STB 开头）
+        await popup.waitForFunction(
+          () => /STB[A-Z0-9]{4,}/i.test((document.body && document.body.innerText) || ''),
+          null, { timeout: 12000 }
+        ).catch(() => {});
+        await sleep(stepDelay > 0 ? Math.min(stepDelay, 2000) : 800);
 
-      // 特殊提示：需要学生身份验证
-      if (/verify (your )?student|student status|verify.*status/i.test(bodyText)) {
-        log(job, 'warn', '该优惠需要先完成学生身份验证（Student Beans 账户未验证时会出现）');
+        const popupUrl = popup.url();
+        const popupText = await popup.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
+        code = extractCode(popupText);
+        if (code) source = 'popup-text';
+
+        // 「Re-open the VOXI mobile website」按钮链接
+        url = await findReopenLink(popup);
+        if (url) source = source || 'popup-button';
+
+        // 新标签页截图 + 全文（排查证据）
+        artifacts.push(await saveArtifact(job, `offer-${idx + 1}.txt`,
+          `URL: ${popupUrl}\nTITLE: ${await popup.title().catch(() => '')}\n\n${popupText}`));
+        artifacts.push(await saveArtifact(job, `offer-${idx + 1}.png`,
+          await popup.screenshot({ fullPage: true }).catch(() => null), 'image/png'));
+
+        await popup.close().catch(() => {});
+      } else {
+        log(job, 'warn', '未检测到新标签页（可能被浏览器拦截弹窗）');
+        artifacts.push(await saveArtifact(job, `offer-${idx + 1}.txt`,
+          await page.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '')));
+        artifacts.push(await saveArtifact(job, `offer-${idx + 1}.png`,
+          await page.screenshot().catch(() => null), 'image/png'));
+      }
+
+      // ---- 兜底：主页面 clipboard / 模态框 ----
+      if (!code) {
+        const cap = await page.evaluate(() => ({
+          clips: (window.__clips || []).slice(-5),
+          modals: [...document.querySelectorAll('[role="dialog"], [data-testid*="modal" i], [class*="modal" i]')]
+            .filter(el => el.offsetWidth || el.offsetHeight)
+            .map(m => (m.innerText || '').replace(/\s+/g, ' ')),
+        })).catch(() => ({}));
+        if (cap.clips && cap.clips.length) { code = extractCode(cap.clips[cap.clips.length - 1]); source = 'clipboard'; }
+        if (!code && cap.modals) {
+          for (const m of cap.modals) { const c = extractCode(m); if (c) { code = c; source = 'modal'; break; } }
+        }
+      }
+
+      // ---- 兜底：网络响应 ----
+      if (!code || !url) {
+        const hits = netHits.slice(-10);
+        if (!code) for (const h of hits) { if (h.codes.length) { code = extractCode(h.codes[0]); source = 'network'; break; } }
+        if (!url) for (const h of hits) { if (h.urls.length) { url = h.urls[0]; break; } }
       }
 
       if (code || url) {
@@ -273,10 +274,16 @@ async function extractVoxi(page, account, job, opts = {}) {
           seenKeys.add(key);
           results.push(row);
         }
-        log(job, 'ok', `✓ 优惠码: ${code || '(未取到)'}  |  链接: ${url ? url.slice(0, 80) : '(无)'}`);
+        log(job, 'ok', `✓ 优惠码: ${code || '(未取到)'}  |  链接: ${url ? url.slice(0, 90) : '(无)'}`);
       } else {
-        log(job, 'warn', `未捕获到优惠码/链接: ${title.slice(0, 60)}（已保存文本快照供排查）`);
+        log(job, 'warn', `未捕获到优惠码/链接: ${title.slice(0, 60)}（已保存快照供排查）`);
       }
+
+      // 清理可能残留的弹窗
+      for (const p of page.context().pages()) {
+        if (p !== page && !p.isClosed()) await p.close().catch(() => {});
+      }
+      await sleep(300);
     }
 
     return { results, artifacts };
@@ -285,4 +292,4 @@ async function extractVoxi(page, account, job, opts = {}) {
   }
 }
 
-module.exports = { extractVoxi };
+module.exports = { extractVoxi, extractCode, findReopenLink };

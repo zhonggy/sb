@@ -113,7 +113,9 @@ npm start                                      # 默认 http://localhost:3920
 - **登录**：打开主页 → 接受 OneTrust Cookie 横幅 → 点击 `a[data-testid="nav-login"]`（失败则回退到其完整 OAuth 链接）→ 跳转 `accounts.studentbeans.com` → 填写 `#email` / `#password` → 等待 `input[name=cf-turnstile-response]` 出 token（提交按钮在此之前是 disabled）→ 等待跳回主站
 - **登录态判断**：导航栏 `[data-testid="nav-login"]` 链接消失即为已登录（注意：未登录页也存在 profile-img，不能作判断依据）
 - **优惠卡片**：每张卡片对应一个 `div[data-testid="offer-issuance-button"]`，按钮文本 "Get code & open site"，标题取按钮最近的 `article` 祖先首行
-- **码的捕获**：七路并取——① `navigator.clipboard.writeText` 劫持（主路径）② 模态框文本正则（点击后 3 秒快速轮询）③ 页面独立码元素扫描 ④ 新标签页 URL ⑤ 当前标签页跳转 URL ⑥ 网络响应 JSON 拦截 ⑦ 路由拦截（中止外部导航，保留模态框并记录目标链接）
+- **提取流程**（2026-09 实测确认）：列表页每张卡片一个「Get code & open site」按钮（共 4 个优惠）→ 点击后**弹出新标签页** → 新标签页内显示优惠码（`STB` 开头，如 `STB274EA12TO0`）→ 新标签页内「Re-open the VOXI mobile website」**按钮的链接**才是正确跳转链接 → 对新标签页截图留证 → 关闭 → 回列表页处理下一张
+- **码的捕获**：优先在新标签页文本匹配 `STB[A-Z0-9]{6,14}`（Student Beans 码格式），兜底 clipboard / 模态框 / 网络响应 JSON
+- **链接的捕获**：新标签页内文本匹配 re-open/open/continue/visit 的按钮取 href（onclick 里的 URL 也能提取），兜底页面内任意 `voxi.co.uk` 链接
 - **排查工件**：每张卡片保存 `offer-N.txt`（页面全文）+ `offer-N.png`（截图）到 `data/artifacts/<任务ID>/`，控制台「任务记录」里也有链接可直接点开
 
 > 站点前端改版时选择器可能变化：所有选择器集中在 `src/scraper/login.js` 与 `src/scraper/extractVoxi.js`；失败时 `data/artifacts/<任务>/` 里有现场截图和 HTML。可用 `npm run probe`（需先 `PROBE_CHANNEL=chrome`）重新探测结构。

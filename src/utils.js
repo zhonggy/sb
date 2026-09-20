@@ -42,10 +42,12 @@ const CODE_RE = /\b([A-Z0-9]{4,16})\b/;
 function extractCodeFromText(text) {
   if (!text) return null;
   const lines = String(text).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  // 码必须含大写字母或数字（防止把 "code here" 里的 here 当成码）
+  const valid = c => c && /[A-Z0-9]/.test(c) && !/^[a-z]+$/.test(c);
   // 优先匹配带提示词的行
   for (const l of lines) {
-    const m = l.match(/(?:code|折扣码|优惠码)[^A-Za-z0-9]{0,6}([A-Z0-9]{4,16})/i);
-    if (m) return m[1];
+    const m = l.match(/(?:code|折扣码|优惠码)[^A-Za-z0-9]{0,6}([A-Za-z0-9]{4,16})/i);
+    if (m && valid(m[1])) return m[1].toUpperCase();
   }
   for (const l of lines) {
     const m = l.match(CODE_RE);
