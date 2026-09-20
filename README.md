@@ -101,8 +101,8 @@ npm start                                      # 默认 http://localhost:3920
 - **登录**：打开主页 → 接受 OneTrust Cookie 横幅 → 点击 `a[data-testid="nav-login"]`（失败则回退到其完整 OAuth 链接）→ 跳转 `accounts.studentbeans.com` → 填写 `#email` / `#password` → 等待 `input[name=cf-turnstile-response]` 出 token（提交按钮在此之前是 disabled）→ 等待跳回主站
 - **登录态判断**：导航栏 `[data-testid="nav-login"]` 链接消失即为已登录（注意：未登录页也存在 profile-img，不能作判断依据）
 - **优惠卡片**：每张卡片对应一个 `div[data-testid="offer-issuance-button"]`，按钮文本 "Get code & open site"，标题取按钮最近的 `article` 祖先首行
-- **码的捕获**：三路并取——① `navigator.clipboard.writeText` 劫持记录（主路径）② 模态框文本正则 ③ 页面独立码元素扫描；链接用 `window.open` / 新标签页 URL 捕获
-- **兜底**：全页截图 + 会话失效自动检测（点击后被弹回登录页即中止本轮）
+- **码的捕获**：七路并取——① `navigator.clipboard.writeText` 劫持（主路径）② 模态框文本正则（点击后 3 秒快速轮询）③ 页面独立码元素扫描 ④ 新标签页 URL ⑤ 当前标签页跳转 URL ⑥ 网络响应 JSON 拦截 ⑦ 路由拦截（中止外部导航，保留模态框并记录目标链接）
+- **排查工件**：每张卡片保存 `offer-N.txt`（页面全文）+ `offer-N.png`（截图）到 `data/artifacts/<任务ID>/`，控制台「任务记录」里也有链接可直接点开
 
 > 站点前端改版时选择器可能变化：所有选择器集中在 `src/scraper/login.js` 与 `src/scraper/extractVoxi.js`；失败时 `data/artifacts/<任务>/` 里有现场截图和 HTML。可用 `npm run probe`（需先 `PROBE_CHANNEL=chrome`）重新探测结构。
 
@@ -149,8 +149,8 @@ A: Student Beans 对新 IP/新设备要求邮件验证。去邮箱点链接后�
 **Q: 提示"未发现优惠卡片/按钮"？**
 A: 站点改版或地区不对。确认服务器 IP 在**英国**，查看 artifacts 里的截图，必要时 `npm run probe` 重新确认选择器。
 
-**Q: 抓到优惠码但链接为空？**
-A: 部分优惠的 "open site" 不弹新窗（只在页面内展示）。属正常现象，优惠码仍然有效。
+**Q: 跑完了但没抓到优惠码，去哪看现场？**
+A: 两个地方：① 控制台左侧「任务记录」里每条任务下方有 `offer-N.png / offer-N.txt` 链接，点开就是点击当时的截图和页面全文（能看到是弹了验证页、跳了 voxi 官网还是要求验证学生身份）；② 服务器上 `data/artifacts/<任务ID>/` 目录。把 `offer-N.txt` 的内容发给我即可精准定位。
 
 **Q: 想抓别的品牌？**
 A: 把 `.env` 里 `VOXI_PAGE_URL` 换成目标品牌页即可，提取逻辑是通用的。
