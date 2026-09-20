@@ -238,9 +238,48 @@ async function doLogin(page, account, job) {
   await page.waitForLoadState('domcontentloaded').catch(() => {});
   await acceptCookies(page, job);
 
-  const ok = await isLoggedInOnSite(page);
-  log(job, ok ? 'info' : 'warn', ok ? '登录成功' : '已跳转回主站但登录态存疑');
-  return { ok, status: ok ? 'logged_in' : 'failed', message: ok ? '' : '未确认登录状态（nav 未变化）' };
+  // 导航校验：等 nav 渲染稳定（OAuth 回调 interstitial 没有导航栏，不能作为判据）
+  let ok = false;
+  for (let t = 0; t < 10; t++) {
+    ok = await isLoggedInOnSite(page);
+    if (ok) break;
+    await sleep(1000);
+  }
+  log(job, ok ? 'info' : 'warn', ok ? '导航校验：已登录' : '已跳转回主站但登录态存疑');
+  if (!ok) {
+    const cookies = await page.context().cookies().catch(() => []);
+    log(job, 'info', '诊断 Cookie: ' + cookies.map(c => c.name).slice(0, 20).join(', '));
+    return { ok: false, status: 'failed', message: '未确认登录状态（nav 未变化）' };
+  }
+
+  // 功能校验：直接访问需要登录的页面，确认不会再被弹回登录页
+  // （拦截 OAuth 回调 interstitial 的误判，以及 cookie 未真正建立的情况）
+  log(job, 'info', '验证会话有效性…');
+  await page.goto(config.voxiPageUrl, { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs }).catch(() => {});
+  await sleep(2500);
+  if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
+    const cookies = await page.context().cookies().catch(() => []);
+    log(job, 'warn', '会话验证失败：访问优惠页被弹回登录页');
+    log(job, 'info', '诊断 Cookie: ' + cookies.map(c => c.name).slice(0, 20).join(', '));
+    saveSessionFailShot(page, job);
+    return { ok: false, status: 'failed', message: '登录后访问优惠页仍被要求登录（会话未建立，可能是 OAuth 回调未完成或密码错误）' };
+  }
+  log(job, 'info', '会话有效');
+  return { ok: true, status: 'logged_in', message: '' };
+}
+
+/** 会话验证失败时留一张现场截图 */
+async function saveSessionFailShot(page, job) {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const dir = job.artifactsDir;
+    await fs.promises.mkdir(dir, { recursive: true });
+    const shot = await page.screenshot();
+    await fs.promises.writeFile(path.join(dir, 'session-verify-fail.png'), shot);
+    if (!Array.isArray(job.artifacts)) job.artifacts = [];
+    job.artifacts.push(path.join(dir, 'session-verify-fail.png'));
+  } catch (e) { /* noop */ }
 }
 
 module.exports = { doLogin, isLoggedInOnSite, acceptCookies, forceRemoveOverlays };

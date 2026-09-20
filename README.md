@@ -143,6 +143,8 @@ A: 这是 **Cloudflare Turnstile 人机验证**未通过（国内 IP + 无头环
 3. `HEADLESS=false` 接 VNC 手动过一次验证，profile 会记住会话
 4. 终极方案：在自己电脑浏览器登录后，用「导入Cookie」粘贴 Cookie
 
+**Q: 日志显示「登录成功」但点击优惠码又被弹回登录页？**
+A: 旧版本曾因 OAuth 回调中间页（无导航栏）误判登录态。新版已加「功能校验」：登录后会真实访问一次优惠页确认会话有效，无效则明确报错并保存 `session-verify-fail.png` + Cookie 诊断日志。若遇到此报错，请把日志里「诊断 Cookie」那几行发给我。
 **Q: 任务状态是「待验证」？**
 A: Student Beans 对新 IP/新设备要求邮件验证。去邮箱点链接后重跑即可；或直接导入 Cookie。
 
