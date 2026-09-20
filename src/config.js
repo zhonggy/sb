@@ -6,7 +6,7 @@ const path = require('path');
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 
 const config = {
-  port: parseInt(env('PORT', '3000'), 10),
+  port: parseInt(env('PORT', '3920'), 10),
   dataDir: path.resolve(env('DATA_DIR', path.join(__dirname, '..', 'data'))),
 
   // Web 控制台访问密码：为空则不加锁（建议设置）

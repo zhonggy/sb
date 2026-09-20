@@ -32,7 +32,7 @@ cp .env.example .env
 docker compose up -d --build
 
 # 3. 打开控制台
-#    http://<服务器IP>:3000   输入 .env 里设置的 ADMIN_PASSWORD
+#    http://<服务器IP>:3920   输入 .env 里设置的 ADMIN_PASSWORD
 ```
 
 日志：`docker compose logs -f`
@@ -44,7 +44,7 @@ node >= 20
 
 npm install
 npx playwright install chromium --with-deps   # Linux 需加 --with-deps
-npm start                                      # 默认 http://localhost:3000
+npm start                                      # 默认 http://localhost:3920
 ```
 
 > Windows 若无法下载 Playwright Chromium，可设 `PW_CHANNEL=chrome` 复用本机 Chrome。
@@ -67,7 +67,7 @@ npm start                                      # 默认 http://localhost:3000
 
 ```
 ┌──────────────────────── Docker 容器 ────────────────────────┐
-│  Express API (3000)  ── SSE 实时日志                        │
+│  Express API (3920)  ── SSE 实时日志                        │
 │      │                                                     │
 │      ├── store.js        JSON 文件持久化(data/db.json)      │
 │      ├── jobRunner.js    串行任务队列                        │
@@ -86,7 +86,7 @@ npm start                                      # 默认 http://localhost:3000
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `PORT` | `3000` | 服务端口 |
+| `PORT` | `3920` | 服务端口 |
 | `ADMIN_PASSWORD` | 空 | 控制台访问密码，**强烈建议设置** |
 | `HEADLESS` | `true` | 无头模式。调试时可设 `false`（容器内需接 VNC） |
 | `PW_CHANNEL` | 空 | 指定系统浏览器渠道 `chrome` / `msedge` |

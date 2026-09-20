@@ -19,10 +19,10 @@ COPY public ./public
 RUN mkdir -p /app/data && chmod -R 777 /app/data
 VOLUME ["/app/data"]
 
-EXPOSE 3000
+EXPOSE 3920
 
 # 健康检查
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3920)+'/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "src/server.js"]
