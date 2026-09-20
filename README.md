@@ -106,6 +106,19 @@ npm start                                      # 默认 http://localhost:3920
 
 > 站点前端改版时选择器可能变化：所有选择器集中在 `src/scraper/login.js` 与 `src/scraper/extractVoxi.js`；失败时 `data/artifacts/<任务>/` 里有现场截图和 HTML。可用 `npm run probe`（需先 `PROBE_CHANNEL=chrome`）重新探测结构。
 
+## ⚠️ 版本匹配规则（重要）
+
+容器内的 `playwright` npm 包版本**必须**与 Docker 镜像 tag 一致，否则会报：
+
+```
+Executable doesn't exist at /ms-playwright/chromium_headless_shell-xxxx/...
+Looks like Playwright was just updated to X. Please update docker image as well.
+```
+
+当前约定：`package.json` 里 `playwright` 为**精确版本**（无 `^`），`Dockerfile` 的 `FROM` tag 与其一致。
+升级步骤：本地 `npm install playwright@<版本>` → 提交新的 `package.json` + `package-lock.json` → 同步改 Dockerfile 镜像 tag。
+Dockerfile 里用 `npm ci`（不用 `npm install` 回退），lock 不同步时构建会直接失败以提醒你。
+
 ## 🧰 开发脚本
 
 | 命令 | 说明 |

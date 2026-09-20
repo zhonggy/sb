@@ -59,6 +59,8 @@ async function acceptCookies(page, job) {
 async function isLoggedInOnSite(page) {
   try {
     return await page.evaluate(() => {
+      // accounts 子域页面没有主导航，不能作为登录态判断依据
+      if (/accounts\.studentbeans\.com/.test(location.hostname)) return false;
       const links = [...document.querySelectorAll('[data-testid="nav-login"]')]
         .filter(el => el.offsetWidth || el.offsetHeight);
       return links.length === 0;
