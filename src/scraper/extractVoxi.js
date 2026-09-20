@@ -39,9 +39,14 @@ async function saveArtifact(job, name, buffer, mime = 'text/plain') {
 
 /** 提取优惠码。loose=true 用于剪贴板（权威来源，长度 8-14 均可）；
  *  loose=false 用于页面文本（必须完整 13 位 STB+10，拒绝掩码格式如 STB27*1XN23IX） */
+/** 提取优惠码。* 是码本身的合法字符（如 STB27*1XN23IX，共 13 位 = STB + 10 位）。
+ *  loose=true 用于剪贴板（权威来源，长度 8-14 均可）；
+ *  loose=false 用于页面文本（必须完整 13 位）。
+ *  用前后查找而非 \b——码可能以 * 结尾，\b 会漏匹配。 */
 function extractCode(text, loose = false) {
   if (!text) return null;
-  const re = loose ? /\bSTB[A-Z0-9]{8,14}\b/i : /\bSTB[A-Z0-9]{10}\b/i;
+  const len = loose ? '{8,14}' : '{10}';
+  const re = new RegExp('(?<![A-Z0-9*])STB[A-Z0-9*]' + len + '(?![A-Z0-9*])', 'i');
   const m = String(text).match(re);
   return m ? m[0].toUpperCase() : null;
 }
@@ -61,11 +66,9 @@ async function lastClip(p) {
 async function cardScopedLink(popup, title) {
   return popup.evaluate(t => {
     const norm = s => (s || '').replace(/\s+/g, ' ').trim();
-    const key = norm(t).slice(0, 40);
-    if (!key) return null;
-    // 找包含该标题的卡片容器
+    const keys = [norm(t).slice(0, 40), norm(t).slice(0, 25), norm(t).slice(0, 15)].filter(k => k.length >= 8);
     const cards = [...document.querySelectorAll('article, div[data-testid^="native-offer-"]')];
-    const card = cards.find(c => norm(c.innerText || '').includes(key));
+    const card = cards.find(c => keys.some(k => norm(c.innerText || '').includes(k)));
     if (!card) return null;
     const rich = /clickref|planId|awinaffid|awin1\.com|cread\.php/i;
     const els = [...card.querySelectorAll('a, button, [role="button"]')];
@@ -90,18 +93,32 @@ async function cardScopedLink(popup, title) {
   }, title).catch(() => null);
 }
 
+/** 在弹窗里按卡片标题定位该卡片，提取该卡片内的优惠码
+ *  （弹窗一次列出全部优惠的码，必须取当前卡片那一个） */
+async function cardScopedCode(popup, title) {
+  return popup.evaluate(t => {
+    const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+    const keys = [norm(t).slice(0, 40), norm(t).slice(0, 25), norm(t).slice(0, 15)].filter(k => k.length >= 8);
+    const cards = [...document.querySelectorAll('article, div[data-testid^="native-offer-"]')];
+    const card = cards.find(c => keys.some(k => norm(c.innerText || '').includes(k)));
+    if (!card) return null;
+    const m = (card.innerText || '').match(/(?<![A-Z0-9*])STB[A-Z0-9*]{10}(?![A-Z0-9*])/i);
+    return m ? m[0].toUpperCase() : null;
+  }, title).catch(() => null);
+}
+
 /** 在弹窗卡片里找 data 属性中的完整码（clipboard 失败时的兜底） */
 async function cardAttrCode(popup, title) {
   return popup.evaluate(t => {
     const norm = s => (s || '').replace(/\s+/g, ' ').trim();
-    const key = norm(t).slice(0, 40);
+    const keys = [norm(t).slice(0, 40), norm(t).slice(0, 25), norm(t).slice(0, 15)].filter(k => k.length >= 8);
     const cards = [...document.querySelectorAll('article, div[data-testid^="native-offer-"]')];
-    const card = cards.find(c => norm(c.innerText || '').includes(key));
+    const card = cards.find(c => keys.some(k => norm(c.innerText || '').includes(k)));
     if (!card) return null;
     const els = [...card.querySelectorAll('*')];
     for (const el of els) {
       for (const attr of el.attributes || []) {
-        const m = String(attr.value || '').match(/\bSTB[A-Z0-9]{10}\b/);
+        const m = String(attr.value || '').match(/(?<![A-Z0-9*])STB[A-Z0-9*]{10}(?![A-Z0-9*])/i);
         if (m) return m[0].toUpperCase();
       }
     }
@@ -253,7 +270,7 @@ async function extractVoxi(page, account, job, opts = {}) {
         const popupUrl = popup.url();
         const popupText = await popup.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
 
-        // ---- 优惠码：clipboard 优先（完整码），弹窗新开时先看弹窗 ----
+        // ---- 优惠码：clipboard 优先 → 本卡片文本 → data 属性 → 全页文本 ----
         if (popupIsNew) {
           code = await lastClip(popup);
           if (code) source = 'clipboard-popup';
@@ -266,7 +283,12 @@ async function extractVoxi(page, account, job, opts = {}) {
           code = await lastClip(popup);
           if (code) source = 'clipboard-popup';
         }
-        // 兜底：data 属性里的完整码 → 页面文本里的完整码（未掩码时）
+        // 本卡片内的码（弹窗列全部优惠，必须取当前卡片那一个）
+        if (!code) {
+          code = await cardScopedCode(popup, title);
+          if (code) source = 'card-text';
+        }
+        // 兜底：data 属性 → 全页文本（可能抓到别的卡片的码，最后手段）
         if (!code) {
           code = await cardAttrCode(popup, title);
           if (code) source = 'card-attr';
@@ -333,4 +355,4 @@ async function extractVoxi(page, account, job, opts = {}) {
   }
 }
 
-module.exports = { extractVoxi, extractCode };
+module.exports = { extractVoxi, extractCode, cardScopedCode, cardScopedLink };
