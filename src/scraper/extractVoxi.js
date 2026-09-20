@@ -1,32 +1,29 @@
 /**
- * Voxi 优惠码提取（基于用户实测的正确流程，2026-09 最终版）：
+ * Voxi 优惠码提取（2026-09 按用户实测 + 工件分析最终版）
  *
- *  实际流程：
- *   1. 列表页每张卡片有 "Get code & open site" 按钮（真实优惠共 4 个：£10/£12/£15/£20）
- *   2. 点击后弹出新标签页
- *   3. 新标签页里显示该优惠的优惠码（STB 开头，如 STB274EA12TO0）
- *   4. 新标签页里 "Re-open the VOXI mobile website" 按钮的链接才是正确链接，
- *      形如 https://www.awin1.com/cread.php?awinmid=10951&ued=...plans?planId=121296&awinaffid=61664&clickref=<uuid>
- *      （每个优惠的 planId/clickref 不同）
+ *  实测确认的真实流程：
+ *   1. 列表页每张卡片有 "Get code & open site" 按钮（真实带码优惠 4 个：£10/£12/£15/£20；
+ *      另有 "Get Discount" 的 £150 代金券，无码，跳过）
+ *   2. 点击后弹出新标签页——内容就是同一个优惠页（URL 带 ?offer=...&redeem_online=true），
+ *      上面一次列出全部优惠；被点那个显示 "Your code has been copied ready to use"
+ *   3. 页面显示的码是【掩码】的（13 位中 1 位被 * 藏起，如 STB27*1XN23IX）——
+ *      完整码在剪贴板里（站点自动复制），必须从 clipboard 拿
+ *   4. 每张卡片下方有自己的 "Re-open the VOXI Mobile website" 按钮，
+ *      其 href（含 planId/clickref）才是该优惠对应的正确链接
  *   5. 关闭/复用新标签页，重复下一个
  *
- *  关键修复：
- *   - 弹窗 URL 可能不变（网站复用命名窗口），此时「等 STB 文本出现」会被旧内容瞬间满足
- *     → 改为等待【URL 变化】且【优惠码与上一条不同】
- *   - 链接选择优先级：href 含 awin/cread/clickref/planId > re-open 文本 > voxi.co.uk > 弹窗初始 URL
- *   - 过滤非优惠卡片（如 "Expires in 24 days" 倒计时元素）
- *   - 全程记录弹窗 URL 链路和全部候选链接，落盘供排查
+ *  因此：码 = clipboard 优先；链接 = 按卡片标题在弹窗里定位该卡片内的 re-open 链接。
  */
 const config = require('../config');
-const { sleep, log, extractCodeFromText } = require('../utils');
+const { sleep, log } = require('../utils');
 const { acceptCookies, forceRemoveOverlays } = require('./login');
 
 // 每张卡片一个 issuance 按钮
 const BTN_SEL = 'div[data-testid="offer-issuance-button"] button, div[data-testid="offer-issuance-button"] a';
-// 优惠标题特征（用于过滤倒计时等非优惠元素）
+// 只处理 "Get code" 按钮（排除 "Get Discount" 的代金券）
+const GET_CODE_RE = /get\s*(your\s*)?(discount\s*)?code/i;
+// 优惠标题特征（过滤倒计时等非优惠元素）
 const OFFER_TITLE_RE = /(\d+\s?GB|£\s?\d+|month|SIM|unlimited|endless|data)/i;
-// 正确链接特征（awin 跟踪链接，带 planId/clickref）
-const TRACKING_LINK_RE = /awin1\.com|cread\.php|clickref|planId|awinaffid/i;
 
 async function saveArtifact(job, name, buffer, mime = 'text/plain') {
   if (!buffer) return null;
@@ -40,60 +37,76 @@ async function saveArtifact(job, name, buffer, mime = 'text/plain') {
   return { name, file, mime };
 }
 
-/** 从文本中提取优惠码：优先 STB 开头（Student Beans 码格式） */
-function extractCode(text) {
+/** 提取优惠码。loose=true 用于剪贴板（权威来源，长度 8-14 均可）；
+ *  loose=false 用于页面文本（必须完整 13 位 STB+10，拒绝掩码格式如 STB27*1XN23IX） */
+function extractCode(text, loose = false) {
   if (!text) return null;
-  const m = String(text).match(/\bSTB[A-Z0-9]{6,14}\b/i);
-  if (m) return m[0].toUpperCase();
-  return null; // 非 STB 格式不猜，避免误报（如 ENGLISH）
+  const re = loose ? /\bSTB[A-Z0-9]{8,14}\b/i : /\bSTB[A-Z0-9]{10}\b/i;
+  const m = String(text).match(re);
+  return m ? m[0].toUpperCase() : null;
 }
 
-/** 收集新标签页里所有候选链接（文本 + href），按优先级挑出正确的
- *  urlChain: 弹窗打开过程中的 URL 链路（跟踪链接可能在重定向前） */
-async function pickTrackingLink(popup, urlChain = []) {
-  const candidates = await popup.evaluate(() => {
-    const out = [];
-    const els = [...document.querySelectorAll('a, button, [role="button"]')];
-    for (const el of els) {
-      const text = (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 80);
-      let href = el.href || el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-url') || '';
-      if (!/^https?:/.test(href)) {
-        const oc = el.getAttribute('onclick') || '';
-        const m = oc.match(/https?:\/\/[^'")\s]+/);
-        if (m) href = m[0];
+/** 读取某页 clipboard 劫持记录的最后一条 */
+async function lastClip(p) {
+  if (!p || p.isClosed()) return null;
+  const clips = await p.evaluate(() => (window.__clips || []).slice(-3)).catch(() => []);
+  for (let i = clips.length - 1; i >= 0; i--) {
+    const c = extractCode(clips[i], true);
+    if (c) return c;
+  }
+  return null;
+}
+
+/** 在弹窗里按卡片标题定位该卡片，取卡片内 re-open 按钮的链接 */
+async function cardScopedLink(popup, title) {
+  return popup.evaluate(t => {
+    const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+    const key = norm(t).slice(0, 40);
+    if (!key) return null;
+    // 找包含该标题的卡片容器
+    const cards = [...document.querySelectorAll('article, div[data-testid^="native-offer-"]')];
+    const card = cards.find(c => norm(c.innerText || '').includes(key));
+    if (!card) return null;
+    const rich = /clickref|planId|awinaffid|awin1\.com|cread\.php/i;
+    const els = [...card.querySelectorAll('a, button, [role="button"]')];
+    const hrefOf = el => {
+      let h = el.href || el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-url') || '';
+      if (!/^https?:/.test(h)) {
+        const m = (el.getAttribute('onclick') || '').match(/https?:\/\/[^'")\s]+/);
+        if (m) h = m[0];
       }
-      if (!href) continue;
-      const visible = !!(el.offsetWidth || el.offsetHeight || el.getBoundingClientRect().width);
-      out.push({ text, href, visible });
+      return h || null;
+    };
+    // 1. 卡片内带唯一参数的链接
+    let el = els.find(e => rich.test(hrefOf(e) || ''));
+    if (el) return { url: hrefOf(el), how: 'card-rich' };
+    // 2. 卡片内 re-open 文本
+    el = els.find(e => /re-?open|open the|continue|visit/i.test(e.innerText || ''));
+    if (el) return { url: hrefOf(el), how: 'card-reopen' };
+    // 3. 卡片内 voxi 链接
+    el = els.find(e => /voxi\.co\.uk/i.test(hrefOf(e) || ''));
+    if (el) return { url: hrefOf(el), how: 'card-voxi' };
+    return null;
+  }, title).catch(() => null);
+}
+
+/** 在弹窗卡片里找 data 属性中的完整码（clipboard 失败时的兜底） */
+async function cardAttrCode(popup, title) {
+  return popup.evaluate(t => {
+    const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+    const key = norm(t).slice(0, 40);
+    const cards = [...document.querySelectorAll('article, div[data-testid^="native-offer-"]')];
+    const card = cards.find(c => norm(c.innerText || '').includes(key));
+    if (!card) return null;
+    const els = [...card.querySelectorAll('*')];
+    for (const el of els) {
+      for (const attr of el.attributes || []) {
+        const m = String(attr.value || '').match(/\bSTB[A-Z0-9]{10}\b/);
+        if (m) return m[0].toUpperCase();
+      }
     }
-    return out;
-  }).catch(() => []);
-
-  const rich = /clickref|planId|awinaffid/i;          // 带每个优惠唯一参数
-  const tracking = /awin1\.com|cread\.php/i;           // awin 跟踪链接
-  const reopen = /re-?open|open the|continue|visit|go to|shop now|get (the )?code/i;
-
-  const find = pred => candidates.find(pred);
-  let hit;
-  // 1-2. 可见/任意 + 带唯一参数（正确链接的特征）
-  hit = find(c => c.visible && rich.test(c.href)) || find(c => rich.test(c.href));
-  if (hit) return { url: hit.href, how: 'rich', candidates };
-  // 3. 弹窗 URL 链路里带唯一参数的（重定向前的真实跳转）
-  const chainRich = urlChain.find(u => rich.test(u));
-  if (chainRich) return { url: chainRich, how: 'url-chain-rich', candidates };
-  // 4-5. 可见/任意 + awin 跟踪链接
-  hit = find(c => c.visible && tracking.test(c.href)) || find(c => tracking.test(c.href));
-  if (hit) return { url: hit.href, how: 'tracking', candidates };
-  // 6-7. 可见 + re-open 文本 / voxi 官网
-  hit = find(c => c.visible && reopen.test(c.text)) || find(c => c.visible && /voxi\.co\.uk/i.test(c.href));
-  if (hit) return { url: hit.href, how: 'reopen-voxi', candidates };
-  // 8. re-open 文本（含隐藏）
-  hit = find(c => reopen.test(c.text));
-  if (hit) return { url: hit.href, how: 'reopen-any', candidates };
-  // 9. 兜底：弹窗 URL 链路里的跟踪链接
-  const chainTrack = urlChain.find(u => tracking.test(u));
-  if (chainTrack) return { url: chainTrack, how: 'url-chain-tracking', candidates };
-  return { url: null, how: 'none', candidates };
+    return null;
+  }, title).catch(() => null);
 }
 
 async function extractVoxi(page, account, job, opts = {}) {
@@ -110,10 +123,8 @@ async function extractVoxi(page, account, job, opts = {}) {
     await forceRemoveOverlays(page);
   };
 
-  // 跨迭代状态：弹窗引用 / 上一个弹窗 URL / 上一条优惠码
   let livePopup = null;
   let lastPopupUrl = '';
-  let lastCode = '';
 
   try {
     log(job, 'info', `打开 VOXI 优惠页: ${listUrl}`);
@@ -124,11 +135,12 @@ async function extractVoxi(page, account, job, opts = {}) {
       return { results, artifacts, error: '访问 VOXI 页时被重定向到登录页，会话无效' };
     }
 
-    // 收集所有候选卡片：issuance 按钮 + 就近 article 标题，过滤非优惠元素
+    // 收集候选卡片：issuance 按钮 + 就近 article 标题；只保留 "Get code" 按钮 + 优惠特征标题
     const cards = await page.evaluate(() => {
       const out = [];
       const btns = [...document.querySelectorAll('div[data-testid="offer-issuance-button"] button, div[data-testid="offer-issuance-button"] a')];
       btns.forEach((b, i) => {
+        const btnText = (b.innerText || '').trim();
         let a = b.closest ? b.closest('article') : null;
         if (!a) {
           a = b;
@@ -139,13 +151,14 @@ async function extractVoxi(page, account, job, opts = {}) {
           }
         }
         const line = ((a.innerText || '').split('\n').find(l => l.trim()) || '').trim();
-        out.push({ i, title: line.slice(0, 300) });
+        out.push({ i, btnText: btnText.slice(0, 60), title: line.slice(0, 300) });
       });
       return out;
     });
 
-    const offerCards = cards.filter(c => OFFER_TITLE_RE.test(c.title));
-    log(job, 'info', `发现 ${cards.length} 个按钮，其中 ${offerCards.length} 个是有效优惠（${offerCards.map(c => c.title.slice(0, 24)).join(' / ')}）`);
+    let offerCards = cards.filter(c => GET_CODE_RE.test(c.btnText) && OFFER_TITLE_RE.test(c.title));
+    if (!offerCards.length) offerCards = cards.filter(c => OFFER_TITLE_RE.test(c.title)); // 兜底
+    log(job, 'info', `发现 ${cards.length} 个按钮，其中 ${offerCards.length} 个是带码优惠（${offerCards.map(c => c.title.slice(0, 20)).join(' / ')}）`);
     if (!offerCards.length) {
       artifacts.push(await saveArtifact(job, 'voxi-page.html', await page.content()));
       return { results, artifacts, error: '未发现有效优惠按钮（已保存页面快照）' };
@@ -157,10 +170,9 @@ async function extractVoxi(page, account, job, opts = {}) {
     for (let n = 0; n < limit; n++) {
       if (job.cancelRequested) { log(job, 'warn', '任务被取消'); break; }
       const card = offerCards[n];
-      const idx = card.i; // 在全部按钮中的下标
+      const idx = card.i;
       const title = card.title || `Offer ${n + 1}`;
 
-      // 每张卡片重新打开列表页，保证状态干净
       log(job, 'info', `[${n + 1}/${limit}] 打开列表页…`);
       await gotoList();
 
@@ -180,8 +192,11 @@ async function extractVoxi(page, account, job, opts = {}) {
         continue;
       }
 
-      // ---- 点击并等待新标签页 ----
+      // 点击前清空主页 clipboard 记录，保证拿到的是本次点击产生的复制
+      await page.evaluate(() => { try { window.__clips = []; } catch (e) {} });
+
       let popup = null;
+      let popupIsNew = false;
       const popupPromise = page.waitForEvent('popup', { timeout: 8000 }).catch(() => null);
       try {
         await forceRemoveOverlays(page);
@@ -197,17 +212,17 @@ async function extractVoxi(page, account, job, opts = {}) {
       }
 
       popup = await popupPromise;
+      if (popup) popupIsNew = true;
 
-      // 没有立刻收到 popup 事件：先轮询等【真正的新页面】（排除上一个已知弹窗）
       if (!popup) {
+        // 等真正的新页面（排除上一个已知弹窗）
         for (let t = 0; t < 20 && !popup; t++) {
           await sleep(500);
           const pages = page.context().pages().filter(p => p !== page && !p.isClosed());
           const fresh = pages.find(p => p !== livePopup);
-          if (fresh) popup = fresh;
+          if (fresh) { popup = fresh; popupIsNew = true; }
         }
       }
-      // 仍没有新页面 → 网站复用了命名窗口：等旧弹窗的 URL 变化
       if (!popup && livePopup && !livePopup.isClosed()) {
         log(job, 'info', '复用已打开的标签页，等待内容更新…');
         await livePopup.waitForFunction(
@@ -216,79 +231,73 @@ async function extractVoxi(page, account, job, opts = {}) {
           { timeout: 15000 }
         ).catch(() => {});
         popup = livePopup;
+        popupIsNew = false;
       }
 
       let code = null;
       let url = null;
       let source = null;
-      let popupInfo = { initialUrl: '', urlChain: [], title: '', text: '', candidates: [] };
 
       if (popup) {
         livePopup = popup;
         log(job, 'info', '新标签页已就绪，等待优惠码…');
-        // 记录 URL 链路（跟踪链接可能在重定向前）
-        const urlChain = [];
-        const onNav = () => { try { const u = popup.url(); if (u && u !== 'about:blank') urlChain.push(u); } catch (e) {} };
-        popup.on('framenavigated', onNav);
-        const initialUrl = popup.url();
-        if (initialUrl && initialUrl !== 'about:blank') urlChain.push(initialUrl);
-
         await popup.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
-
-        // 等优惠码：必须是 STB 格式，且与上一条不同（防读到旧内容）
+        // 等本卡片标题出现在弹窗里
         await popup.waitForFunction(
-          prev => {
-            const t = (document.body && document.body.innerText) || '';
-            const m = t.match(/\bSTB[A-Z0-9]{6,14}\b/i);
-            return !!m && (!prev || m[0].toUpperCase() !== prev);
-          },
-          lastCode,
-          { timeout: 15000 }
+          t => ((document.body && document.body.innerText) || '').replace(/\s+/g, ' ').includes(t.replace(/\s+/g, ' ').slice(0, 40)),
+          title,
+          { timeout: 12000 }
         ).catch(() => {});
         await sleep(stepDelay > 0 ? Math.min(stepDelay, 2000) : 1000);
-        onNav();
 
         const popupUrl = popup.url();
         const popupText = await popup.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
-        const popupTitle = await popup.title().catch(() => '');
-        code = extractCode(popupText);
-        if (code) source = 'popup-text';
 
-        const picked = await pickTrackingLink(popup, [...new Set(urlChain)]);
-        url = picked.url;
-        if (url) source = source || `popup-${picked.how}`;
-
-        popupInfo = { initialUrl, urlChain: [...new Set(urlChain)], title: popupTitle, text: popupText, candidates: picked.candidates };
-        popup.off('framenavigated', onNav);
-
-        // 关键诊断日志：弹窗 URL 链路
-        log(job, 'info', `弹窗URL: ${initialUrl}${popupUrl !== initialUrl ? ' → ' + popupUrl : ''}`);
-        if (popupInfo.urlChain.length > 1) {
-          log(job, 'info', `URL链路: ${popupInfo.urlChain.join(' → ')}`);
+        // ---- 优惠码：clipboard 优先（完整码），弹窗新开时先看弹窗 ----
+        if (popupIsNew) {
+          code = await lastClip(popup);
+          if (code) source = 'clipboard-popup';
+        }
+        if (!code) {
+          code = await lastClip(page);
+          if (code) source = 'clipboard-main';
+        }
+        if (!code && !popupIsNew) {
+          code = await lastClip(popup);
+          if (code) source = 'clipboard-popup';
+        }
+        // 兜底：data 属性里的完整码 → 页面文本里的完整码（未掩码时）
+        if (!code) {
+          code = await cardAttrCode(popup, title);
+          if (code) source = 'card-attr';
+        }
+        if (!code) {
+          code = extractCode(popupText);
+          if (code) source = 'popup-text';
         }
 
+        // ---- 链接：按卡片标题定位该卡片自己的 re-open 按钮 ----
+        const scoped = await cardScopedLink(popup, title);
+        if (scoped && scoped.url) {
+          url = scoped.url;
+          source = source || `popup-${scoped.how}`;
+        }
+
+        // 诊断日志
+        log(job, 'info', `弹窗URL: ${popupUrl}${popupUrl !== lastPopupUrl ? '' : '（与上条相同，属正常：同页不同优惠）'}`);
+        log(job, 'info', `本卡链接: ${url ? url.slice(0, 120) : '(未取到)'}${scoped ? ' [' + scoped.how + ']' : ''}`);
+
         // 截图 + 全文落盘
-        const candLines = (picked.candidates || []).slice(0, 12)
-          .map(c => `  [${c.visible ? '可见' : '隐藏'}] ${(c.text || '(无文本)').slice(0, 40)} => ${c.href}`).join('\n');
         artifacts.push(await saveArtifact(job, `offer-${n + 1}.txt`,
-          `TITLE: ${title}\n弹窗初始URL: ${initialUrl}\n弹窗URL链路: ${popupInfo.urlChain.join(' -> ')}\n` +
-          `当前URL: ${popupUrl}\n页面标题: ${popupTitle}\n优惠码: ${code || '(未取到)'}\n选中链接: ${url || '(无)'} (${picked.how})\n` +
-          `候选链接:\n${candLines}\n\n----- 页面全文 -----\n${popupText}`));
+          `TITLE: ${title}\n弹窗URL: ${popupUrl}\n优惠码: ${code || '(未取到)'} [${source || '?'}]\n链接: ${url || '(无)'}\n\n----- 页面全文 -----\n${popupText}`));
         artifacts.push(await saveArtifact(job, `offer-${n + 1}.png`,
           await popup.screenshot({ fullPage: true }).catch(() => null), 'image/png'));
 
-        if (code) lastCode = code;
         if (popupUrl) lastPopupUrl = popupUrl;
       } else {
         log(job, 'warn', '未检测到新标签页（可能被浏览器拦截弹窗）');
         artifacts.push(await saveArtifact(job, `offer-${n + 1}.txt`, await page.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '')));
         artifacts.push(await saveArtifact(job, `offer-${n + 1}.png`, await page.screenshot().catch(() => null), 'image/png'));
-      }
-
-      // ---- 兜底：主页面 clipboard（仅 STB 格式） ----
-      if (!code) {
-        const clips = await page.evaluate(() => (window.__clips || []).slice(-5)).catch(() => []);
-        for (const c of clips) { const x = extractCode(c); if (x) { code = x; source = 'clipboard'; break; } }
       }
 
       if (code || url) {
@@ -318,11 +327,10 @@ async function extractVoxi(page, account, job, opts = {}) {
 
     return { results, artifacts };
   } finally {
-    // 清理残留弹窗
     for (const p of page.context().pages()) {
       if (p !== page && !p.isClosed()) await p.close().catch(() => {});
     }
   }
 }
 
-module.exports = { extractVoxi, extractCode, pickTrackingLink };
+module.exports = { extractVoxi, extractCode };

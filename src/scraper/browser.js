@@ -41,6 +41,13 @@ const initScript = () => {
     navigator.clipboard.writeText = t => { window.__clips.push(String(t)); return Promise.resolve(); };
     navigator.clipboard.readText = () => Promise.resolve(window.__clips[window.__clips.length - 1] || '');
   } catch (e) { /* noop */ }
+  // copy 事件兜底（有些站点用 execCommand 复制）
+  document.addEventListener('copy', e => {
+    try {
+      const t = e.clipboardData && e.clipboardData.getData('text/plain');
+      if (t) window.__clips.push(String(t));
+    } catch (err) { /* noop */ }
+  }, true);
   const origOpen = window.open;
   window.open = (url, ...rest) => {
     try { window.__opens.push(String(url)); } catch (e) { /* noop */ }
