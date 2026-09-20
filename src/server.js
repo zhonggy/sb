@@ -7,7 +7,7 @@ const config = require('./config');
 const store = require('./store');
 const jobRunner = require('./jobRunner');
 const scheduler = require('./scheduler');
-const { bus, maskAccount, toCsv } = require('./utils');
+const { bus, maskAccount, toCsv, log } = require('./utils');
 const { parseCookies } = require('./cookieParser');
 
 const app = express();
@@ -174,6 +174,20 @@ app.post('/api/jobs/:id/cancel', (req, res) => {
 // ---------- 结果 ----------
 app.get('/api/results', (req, res) => {
   res.json({ results: store.listResults(req.query.accountId, parseInt(req.query.limit || '500', 10)) });
+});
+
+/** 清空提取结果（?accountId= 只清该账号，否则全部） */
+app.delete('/api/results', (req, res) => {
+  const removed = store.clearResults(req.query.accountId);
+  log(null, 'info', `清空提取结果 ${removed} 条${req.query.accountId ? '（账号: ' + req.query.accountId + '）' : ''}`);
+  res.json({ ok: true, removed });
+});
+
+/** 清空任务记录（运行中/排队中的保留） */
+app.delete('/api/jobs', (req, res) => {
+  const removed = store.clearJobs();
+  log(null, 'info', `清空任务记录 ${removed} 条`);
+  res.json({ ok: true, removed });
 });
 
 app.get('/api/export', (req, res) => {

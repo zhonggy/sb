@@ -290,6 +290,27 @@ $('#btn-save-settings').addEventListener('click', async () => {
 
 $('#filter-account').addEventListener('change', renderResults);
 $('#btn-refresh-results').addEventListener('click', () => api('/api/results').then(d => { state.results = d.results; renderResults(); }));
+
+$('#btn-clear-results').addEventListener('click', async () => {
+  const accId = $('#filter-account').value;
+  const acc = state.accounts.find(a => a.id === accId);
+  const scope = accId ? `账号「${acc ? (acc.label || acc.email) : accId}」的` : '全部';
+  if (!confirm(`确定清空${scope}提取结果？\n此操作不可恢复，建议先导出备份。`)) return;
+  try {
+    const r = await api('/api/results' + (accId ? '?accountId=' + encodeURIComponent(accId) : ''), { method: 'DELETE' });
+    toast(`已清空 ${r.removed} 条结果`, 'ok');
+    bootstrap();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+$('#btn-clear-jobs').addEventListener('click', async () => {
+  if (!confirm('确定清空任务记录？\n进行中/排队中的任务会保留。')) return;
+  try {
+    const r = await api('/api/jobs', { method: 'DELETE' });
+    toast(`已清空 ${r.removed} 条任务记录`, 'ok');
+    bootstrap();
+  } catch (e) { toast(e.message, 'error'); }
+});
 $('#btn-clear-log').addEventListener('click', () => { $('#log-console').innerHTML = ''; });
 
 /* ---------- 日志（SSE） ---------- */

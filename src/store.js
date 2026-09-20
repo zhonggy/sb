@@ -103,6 +103,14 @@ function updateJob(id, patch) {
 function pruneJobs() {
   if (db.jobs.length > 200) db.jobs.splice(0, db.jobs.length - 200);
 }
+/** 清空任务记录（保留排队中/运行中的，避免破坏任务队列）；返回删除条数 */
+function clearJobs() {
+  const keep = new Set(['running', 'queued']);
+  const before = db.jobs.length;
+  db.jobs = db.jobs.filter(j => keep.has(j.status));
+  save();
+  return before - db.jobs.length;
+}
 
 // ---------- results ----------
 function addResults(rows) {
@@ -115,6 +123,13 @@ const listResults = (accountId, limit = 500) => {
   if (accountId) rows = rows.filter(r => r.accountId === accountId);
   return rows.slice(0, limit);
 };
+/** 清空提取结果（传 accountId 只清该账号）；返回删除条数 */
+function clearResults(accountId) {
+  const before = db.results.length;
+  db.results = accountId ? db.results.filter(r => r.accountId !== accountId) : [];
+  save();
+  return before - db.results.length;
+}
 
 // ---------- settings ----------
 const getSettings = () => db.settings;
@@ -129,7 +144,7 @@ load();
 module.exports = {
   getDb, save,
   listAccounts, getAccount, addAccount, updateAccount, removeAccount,
-  listJobs, addJob, updateJob, pruneJobs,
-  addResults, listResults,
+  listJobs, addJob, updateJob, pruneJobs, clearJobs,
+  addResults, listResults, clearResults,
   getSettings, updateSettings,
 };
