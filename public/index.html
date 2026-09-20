@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VOXI 优惠码提取控制台</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎫</text></svg>">
+</head>
+<body>
+  <!-- 登录遮罩（设置 ADMIN_PASSWORD 时出现） -->
+  <div id="auth-gate" class="auth-gate hidden">
+    <div class="auth-box">
+      <h2>🔒 控制台登录</h2>
+      <input type="password" id="auth-password" placeholder="访问密码" autocomplete="current-password">
+      <button id="auth-submit" class="btn primary">进入控制台</button>
+      <p id="auth-error" class="error-text"></p>
+    </div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎫</span>
+      <div>
+        <h1>VOXI 优惠码提取控制台</h1>
+        <small>Student Beans 自动登录 · 优惠码提取</small>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="scheduler-status" class="badge muted" title="定时任务状态">定时: 未启用</span>
+      <span id="conn-status" class="badge muted" title="实时日志连接">● 连接中</span>
+      <button id="btn-logout" class="btn ghost small hidden">退出</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左列 -->
+    <section class="col">
+      <div class="card">
+        <div class="card-head">
+          <h2>👤 账号管理</h2>
+          <button class="btn primary small" id="btn-run-all">▶ 运行全部账号</button>
+        </div>
+        <form id="account-form" class="stack">
+          <input id="acc-label" placeholder="备注名（如：主号）">
+          <input id="acc-email" type="email" placeholder="Student Beans 账号邮箱" required>
+          <div class="row">
+            <input id="acc-password" type="password" placeholder="密码" autocomplete="new-password">
+            <button class="btn" type="submit">添加</button>
+          </div>
+        </form>
+        <div id="account-list" class="account-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>⚙️ 运行设置</h2>
+        <div class="stack settings-form">
+          <label class="row between">
+            <span>定时自动提取</span>
+            <input type="checkbox" id="set-schedule-enabled">
+          </label>
+          <label class="stack">
+            <span>Cron 表达式</span>
+            <input id="set-schedule-cron" placeholder="如 0 8 * * *（每天 08:00）">
+          </label>
+          <label class="stack">
+            <span>每轮最多提取优惠数</span>
+            <input id="set-max-offers" type="number" min="1" max="50">
+          </label>
+          <label class="stack">
+            <span>点击间隔（毫秒，防风控）</span>
+            <input id="set-delay" type="number" min="0" step="100">
+          </label>
+          <button class="btn" id="btn-save-settings">保存设置</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>📜 任务记录</h2>
+        <div id="job-list" class="job-list"></div>
+      </div>
+    </section>
+
+    <!-- 右列 -->
+    <section class="col wide">
+      <div class="card">
+        <div class="card-head">
+          <h2>📊 提取结果</h2>
+          <div class="row">
+            <select id="filter-account"><option value="">全部账号</option></select>
+            <a class="btn small" href="/api/export?format=csv" download>导出 CSV</a>
+            <a class="btn small" href="/api/export?format=json" download>导出 JSON</a>
+            <button class="btn small" id="btn-refresh-results">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="results-table">
+            <thead>
+              <tr><th>时间</th><th>账号</th><th>优惠</th><th>优惠码</th><th>链接</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <p id="results-empty" class="empty hidden">暂无结果，添加账号后点击「运行」。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>🖥️ 实时日志</h2>
+          <button class="btn ghost small" id="btn-clear-log">清空</button>
+        </div>
+        <div id="log-console" class="log-console"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast-root"></div>
+  <script src="app.js"></script>
+</body>
+</html>

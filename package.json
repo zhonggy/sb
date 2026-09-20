@@ -1,0 +1,20 @@
+{
+  "name": "voxi-beans-extractor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Voxi Student Beans 优惠码自动提取工具（Web 控制台 + Playwright 自动化）",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "probe": "node scripts/probe.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "playwright": "^1.49.1"
+  }
+}

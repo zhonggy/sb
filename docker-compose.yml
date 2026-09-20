@@ -1,0 +1,22 @@
+services:
+  voxi-extractor:
+    build: .
+    image: voxi-extractor:latest
+    container_name: voxi-extractor
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # ===== 必改：控制台访问密码（强烈建议设置） =====
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-change-me}
+      # ===== 可选配置 =====
+      - TZ=${TZ:-Europe/London}
+      - HEADLESS=${HEADLESS:-true}
+      # 定时任务（服务器本地时区受 TZ 影响，代码默认按 Europe/London 解析）
+      - SCHEDULE_ENABLED=${SCHEDULE_ENABLED:-false}
+      - SCHEDULE_CRON=${SCHEDULE_CRON:-0 8 * * *}
+      # 走代理登录（可选，例如住宅代理更稳）
+      - PROXY_URL=${PROXY_URL:-}
+    volumes:
+      # 账号/结果/浏览器会话/截图 全部持久化
+      - ./data:/app/data

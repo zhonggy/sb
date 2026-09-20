@@ -1,0 +1,135 @@
+/**
+ * JSON 文件持久化存储（原子写入，无需数据库）
+ * data/db.json:
+ * {
+ *   accounts: [], jobs: [], results: [], settings: {...}
+ * }
+ */
+const fs = require('fs');
+const path = require('path');
+const config = require('./config');
+
+const DB_FILE = path.join(config.dataDir, 'db.json');
+
+const defaults = () => ({
+  accounts: [],
+  jobs: [],
+  results: [],
+  settings: {
+    headless: config.headless,
+    scheduleEnabled: config.scheduleEnabled,
+    scheduleCron: config.scheduleCron,
+    maxOffersPerRun: config.maxOffersPerRun,
+    stepDelayMs: config.stepDelayMs,
+  },
+});
+
+let db = defaults();
+let saveTimer = null;
+let saving = false;
+let saveQueued = false;
+
+function load() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const raw = fs.readFileSync(DB_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      db = { ...defaults(), ...parsed, settings: { ...defaults().settings, ...(parsed.settings || {}) } };
+    }
+  } catch (e) {
+    console.error('[store] db.json 损坏，已重置:', e.message);
+    fs.renameSync(DB_FILE, DB_FILE + '.corrupt-' + Date.now());
+    db = defaults();
+  }
+}
+
+function persist() {
+  // 防抖 + 串行化写入
+  if (saving) { saveQueued = true; return; }
+  saving = true;
+  const snapshot = JSON.stringify(db, null, 2);
+  const tmp = DB_FILE + '.tmp';
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  fs.writeFile(tmp, snapshot, err => {
+    saving = false;
+    if (err) { console.error('[store] 写入失败:', err.message); return; }
+    fs.rename(tmp, DB_FILE, err2 => {
+      if (err2) console.error('[store] rename 失败:', err2.message);
+      if (saveQueued) { saveQueued = false; persist(); }
+    });
+  });
+}
+
+const save = () => { if (saveTimer) return; saveTimer = setTimeout(() => { saveTimer = null; persist(); }, 150); };
+
+function getDb() { return db; }
+
+// ---------- accounts ----------
+const listAccounts = () => db.accounts;
+const getAccount = id => db.accounts.find(a => a.id === id);
+function addAccount({ label, email, password }) {
+  const a = {
+    id: require('./utils').uid('acc_'),
+    label: label || email,
+    email, password, cookies: null,
+    createdAt: new Date().toISOString(),
+    lastRunAt: null, lastStatus: null, lastError: null,
+  };
+  db.accounts.push(a); save();
+  return a;
+}
+function updateAccount(id, patch) {
+  const a = getAccount(id);
+  if (!a) return null;
+  Object.assign(a, patch);
+  save();
+  return a;
+}
+function removeAccount(id) {
+  const i = db.accounts.findIndex(a => a.id === id);
+  if (i >= 0) { db.accounts.splice(i, 1); save(); return true; }
+  return false;
+}
+
+// ---------- jobs ----------
+const listJobs = () => db.jobs.slice().sort((x, y) => (y.startedAt || '').localeCompare(x.startedAt || ''));
+function addJob(job) { db.jobs.push(job); save(); return job; }
+function updateJob(id, patch) {
+  const j = db.jobs.find(x => x.id === id);
+  if (!j) return null;
+  Object.assign(j, patch); save();
+  return j;
+}
+function pruneJobs() {
+  if (db.jobs.length > 200) db.jobs.splice(0, db.jobs.length - 200);
+}
+
+// ---------- results ----------
+function addResults(rows) {
+  for (const r of rows) db.results.push(r);
+  if (db.results.length > 2000) db.results.splice(0, db.results.length - 2000);
+  save();
+}
+const listResults = (accountId, limit = 500) => {
+  let rows = db.results.slice().sort((a, b) => (b.extractedAt || '').localeCompare(a.extractedAt || ''));
+  if (accountId) rows = rows.filter(r => r.accountId === accountId);
+  return rows.slice(0, limit);
+};
+
+// ---------- settings ----------
+const getSettings = () => db.settings;
+function updateSettings(patch) {
+  Object.assign(db.settings, patch || {});
+  save();
+  return db.settings;
+}
+
+load();
+
+module.exports = {
+  getDb, save,
+  listAccounts, getAccount, addAccount, updateAccount, removeAccount,
+  listJobs, addJob, updateJob, pruneJobs,
+  addResults, listResults,
+  getSettings, updateSettings,
+};
