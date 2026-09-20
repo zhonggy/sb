@@ -140,6 +140,13 @@ function renderJobs() {
       <span>${(j.resultIds || []).length ? j.resultIds.length + '条' : ''}</span>
       ${j.status === 'running' || j.status === 'queued' ? `<button class="btn ghost small" data-cancel="${j.id}">取消</button>` : ''}
       ${j.error ? `<span style="color:var(--red);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(j.error)}">${escapeHtml(j.error)}</span>` : ''}`;
+    if (j.artifacts && j.artifacts.length) {
+      const arts = document.createElement('div');
+      arts.className = 'arts';
+      arts.innerHTML = '📸 ' + j.artifacts.map(a =>
+        `<a href="/artifacts/${a}" target="_blank" rel="noopener">${escapeHtml(a.split('/').pop())}</a>`).join(' ');
+      div.appendChild(arts);
+    }
     const c = div.querySelector('[data-cancel]');
     if (c) c.addEventListener('click', () => api('/api/jobs/' + j.id + '/cancel', { method: 'POST' }).then(bootstrap));
     box.appendChild(div);

@@ -64,9 +64,16 @@ app.use('/api', sessionAuth);
 
 app.get('/api/bootstrap', (req, res) => {
   const jobs = store.listJobs().slice(0, 50);
+  const artDir = path.join(config.dataDir, 'artifacts');
   res.json({
     accounts: store.listAccounts().map(maskAccount),
-    jobs: jobs.map(j => ({ ...j, logs: (j.logs || []).slice(-30) })),
+    jobs: jobs.map(j => ({
+      ...j,
+      logs: (j.logs || []).slice(-30),
+      artifacts: (j.artifacts || []).map(f => {
+        try { return path.relative(artDir, f).split(path.sep).join('/'); } catch (e) { return null; }
+      }).filter(Boolean),
+    })),
     results: store.listResults(null, 200),
     settings: store.getSettings(),
     scheduler: { enabled: !!store.getSettings().scheduleEnabled, cron: store.getSettings().scheduleCron },

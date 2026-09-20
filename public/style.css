@@ -109,7 +109,10 @@ tr:hover td { background: rgba(124, 92, 255, .05); }
 
 /* 任务列表 */
 .job-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
-.job-item { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; }
+.job-item { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; flex-wrap: wrap; align-items: center; }
+.job-item .arts { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px; border-top: 1px dashed var(--border); }
+.job-item .arts a { color: var(--accent-2); text-decoration: none; font-size: 12px; }
+.job-item .arts a:hover { text-decoration: underline; }
 
 /* 登录遮罩 */
 .auth-gate {
