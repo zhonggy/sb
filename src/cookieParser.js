@@ -116,7 +116,11 @@ function parseCookies(input) {
   }
 
   if (typeof input === 'string') {
-    const text = input.trim();
+    let text = input.trim();
+    // document.cookie 在控制台的输出带引号，连引号复制时自动剥掉（仅整段被包裹时）
+    if (text.length > 1 && /^("[\s\S]*"|'[\s\S]*')$/.test(text) && !/^('|\")\s*(curl|\[|\{)/i.test(text)) {
+      text = text.slice(1, -1).trim();
+    }
     if (text.startsWith('[') || text.startsWith('{')) {
       try {
         const parsed = JSON.parse(text);
