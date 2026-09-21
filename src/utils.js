@@ -80,4 +80,14 @@ function resultKey(r) {
   return (r.accountId || '') + '|' + code + '|' + plan;
 }
 
-module.exports = { bus, sleep, uid, log, maskAccount, extractCodeFromText, toCsv, resultKey };
+/** 精简优惠标题：只保留套餐和价格部分
+ *  "80 GB for £10 a month + 1 month FREE + Unlimited Social" → "80 GB for £10 a month" */
+function shortTitle(title) {
+  if (!title) return '';
+  const t = String(title).replace(/\s+/g, ' ').trim();
+  const m = t.match(/^(.+?\ba month\b)/i);
+  if (m) return m[1].trim();
+  return t.split(/\s+\+\s+/)[0].trim();
+}
+
+module.exports = { bus, sleep, uid, log, maskAccount, extractCodeFromText, toCsv, resultKey, shortTitle };
