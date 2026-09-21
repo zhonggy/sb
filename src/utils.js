@@ -90,4 +90,19 @@ function shortTitle(title) {
   return t.split(/\s+\+\s+/)[0].trim();
 }
 
-module.exports = { bus, sleep, uid, log, maskAccount, extractCodeFromText, toCsv, resultKey, shortTitle };
+/** 按套餐价格升序排序（£10 → £12 → £15 → £20）；无价格的排最后，其次按时间倒序 */
+function sortByPrice(rows) {
+  const priceOf = r => {
+    const m = String((r && r.title) || '').match(/£\s?(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  return rows.slice().sort((a, b) => {
+    const pa = priceOf(a), pb = priceOf(b);
+    if (pa != null && pb != null && pa !== pb) return pa - pb;
+    if (pa != null && pb == null) return -1;
+    if (pa == null && pb != null) return 1;
+    return ((b.extractedAt || '').localeCompare(a.extractedAt || ''));
+  });
+}
+
+module.exports = { bus, sleep, uid, log, maskAccount, extractCodeFromText, toCsv, resultKey, shortTitle, sortByPrice };

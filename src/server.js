@@ -7,7 +7,7 @@ const config = require('./config');
 const store = require('./store');
 const jobRunner = require('./jobRunner');
 const scheduler = require('./scheduler');
-const { bus, maskAccount, toCsv, log, shortTitle } = require('./utils');
+const { bus, maskAccount, toCsv, log, shortTitle, sortByPrice } = require('./utils');
 const { parseCookies } = require('./cookieParser');
 
 const app = express();
@@ -197,8 +197,8 @@ app.get('/api/export', (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename="voxi-results.json"');
     res.json(rows);
   } else if (fmt === 'txt') {
-    // 每行: 优惠----优惠码----链接（优惠只保留到 a month）
-    const txt = rows
+    // 每行: 优惠----优惠码----链接（优惠只保留到 a month，按价格升序 10→12→15→20）
+    const txt = sortByPrice(rows)
       .map(r => `${shortTitle(r.title)}----${r.code || ''}----${r.url || ''}`)
       .join('\n');
     res.setHeader('Content-Disposition', 'attachment; filename="voxi-results.txt"');
