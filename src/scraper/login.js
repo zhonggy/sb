@@ -147,6 +147,37 @@ async function clickTurnstileCheckbox(page, job, waitMs = 5000, pollMs = 20000) 
   }
 }
 
+/** 后台 Turnstile 监视器：覆盖整个登录流程（提交前等待 + 提交后跳转等待 + 会话验证）
+ *  CF 升级显示复选框的时机不确定（可能几十秒后），固定窗口容易错过——
+ *  这个监视器每 2 秒查一次，复选框任何时候出现都立即点掉（只点一次）。
+ *  返回 { stop() } 用完必须调用。 */
+function startTurnstileWatcher(page, job) {
+  const state = { clicked: false, stopped: false, sawIframe: false };
+  const timer = setInterval(async () => {
+    if (state.stopped || state.clicked) return;
+    try {
+      if (page.isClosed()) return;
+      const hasFrame = await page.locator('iframe[src*="challenges.cloudflare.com"]').count().catch(() => 0) > 0;
+      if (!hasFrame) return;
+      if (!state.sawIframe) {
+        state.sawIframe = true;
+        log(job, 'info', '检测到 Turnstile iframe，等待复选框渲染…');
+      }
+      const cb = page.frameLocator('iframe[src*="challenges.cloudflare.com"]').locator('input[type="checkbox"]').first();
+      if (await cb.count().catch(() => 0) > 0) {
+        log(job, 'info', '发现 Turnstile 复选框，自动点击…');
+        const ok = await cb.click({ timeout: 8000 }).then(() => true).catch(e => {
+          log(job, 'warn', '复选框点击失败: ' + e.message.split('\n')[0]);
+          return false;
+        });
+        state.clicked = true;
+        log(job, ok ? 'info' : 'warn', ok ? '复选框已点击，等待验证结果…' : '复选框点击失败');
+      }
+    } catch (e) { /* 监视器异常不影响主流程 */ }
+  }, 2000);
+  return { state, stop: () => { state.stopped = true; clearInterval(timer); } };
+}
+
 async function doLogin(page, account, job) {
   log(job, 'info', '打开主页准备登录…');
   await page.goto(config.siteUrl, { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs });
@@ -222,62 +253,42 @@ async function doLogin(page, account, job) {
   await pwdInput.fill(account.password);
   await sleep(500);
 
-  // 统一等待 Turnstile 验证（最多 60 秒）：
-  //  CF managed 模式先跑十几秒无感评估，失败后才升级显示复选框——
-  //  所以整个等待期持续监视，复选框一出现就点（只点一次）；
-  //  提交按钮解除禁用 或 token 出现 → 就绪。
-  const submitSel = 'form button[type="submit"]:has-text("Log in"), button[type="submit"]:has-text("Log in")';
-  const submitEnabledSel = submitSel.split(',')[0] + ':not([disabled])';
-  log(job, 'info', '等待 Turnstile 验证通过…');
-  let btnReady = false;
-  let tsClicked = false;
-  let tsFrameLogged = false;
-  const tsDeadline = Date.now() + 60000;
-  while (Date.now() < tsDeadline) {
-    // 复选框监视（轻量轮询，不阻塞）
-    if (!tsClicked) {
-      const hasFrame = await page.locator('iframe[src*="challenges.cloudflare.com"]').count().catch(() => 0) > 0;
-      if (hasFrame) {
-        if (!tsFrameLogged) { tsFrameLogged = true; log(job, 'info', '检测到 Turnstile iframe，等待复选框渲染…'); }
-        const cb = page.frameLocator('iframe[src*="challenges.cloudflare.com"]').locator('input[type="checkbox"]').first();
-        if (await cb.count().catch(() => 0) > 0) {
-          log(job, 'info', '发现 Turnstile 复选框，自动点击…');
-          await cb.click({ timeout: 8000 }).catch(e => log(job, 'warn', '复选框点击失败: ' + e.message.split('\n')[0]));
-          tsClicked = true;
-          await sleep(2000);
-        }
-      } else if (!tsFrameLogged) {
-        tsFrameLogged = true;
-        log(job, 'info', '暂未发现 Turnstile iframe（无感模式或控件未加载），持续监视中…');
-      }
-    }
-    // 就绪判断：按钮解除禁用 或 token 已签发
-    btnReady = await page.locator(submitEnabledSel).count().catch(() => 0) > 0;
-    const tokenOk = await page.evaluate(() => {
-      const el = document.querySelector('input[name="cf-turnstile-response"]');
-      return !!(el && el.value && el.value.length > 20);
-    }).catch(() => false);
-    if (btnReady || tokenOk) break;
-    await sleep(1500);
-  }
-  if (btnReady) {
-    log(job, 'info', 'Turnstile 验证已通过');
-  } else {
-    log(job, 'warn', '提交按钮仍处于禁用状态（Turnstile 未通过），尝试回车提交');
-  }
-
-  log(job, 'info', '提交登录…');
+  // 后台 Turnstile 监视器：覆盖整个登录流程，复选框何时出现何时点
+  const tsWatcher = startTurnstileWatcher(page, job);
   try {
-    const submitBtn = page.locator(submitSel).first();
-    if (await submitBtn.count()) {
-      await submitBtn.click({ timeout: config.clickTimeoutMs, force: !!btnReady ? undefined : true });
-    } else {
-      await pwdInput.press('Enter');
+    // 等待提交按钮就绪（监视器负责点复选框；给足时间等 CF 升级，默认 120 秒）
+    const submitSel = 'form button[type="submit"]:has-text("Log in"), button[type="submit"]:has-text("Log in")';
+    const submitEnabledSel = submitSel.split(',')[0] + ':not([disabled])';
+    log(job, 'info', '等待 Turnstile 验证通过…');
+    let btnReady = false;
+    const tsDeadline = Date.now() + (config.turnstileWaitMs || 120000);
+    while (Date.now() < tsDeadline) {
+      btnReady = await page.locator(submitEnabledSel).count().catch(() => 0) > 0;
+      const tokenOk = await page.evaluate(() => {
+        const el = document.querySelector('input[name="cf-turnstile-response"]');
+        return !!(el && el.value && el.value.length > 20);
+      }).catch(() => false);
+      if (btnReady || tokenOk) break;
+      await sleep(1500);
     }
-  } catch (e) {
-    log(job, 'warn', '点击提交失败，改用回车: ' + e.message.split('\n')[0]);
-    await pwdInput.press('Enter').catch(() => {});
-  }
+    if (btnReady) {
+      log(job, 'info', 'Turnstile 验证已通过');
+    } else {
+      log(job, 'warn', `等待 ${(config.turnstileWaitMs || 120000) / 1000}s 提交按钮仍禁用${tsWatcher.state.sawIframe ? '（iframe 出现过但验证未通过）' : '（未检测到 Turnstile iframe）'}，尝试回车提交`);
+    }
+
+    log(job, 'info', '提交登录…');
+    try {
+      const submitBtn = page.locator(submitSel).first();
+      if (await submitBtn.count()) {
+        await submitBtn.click({ timeout: config.clickTimeoutMs, force: !!btnReady ? undefined : true });
+      } else {
+        await pwdInput.press('Enter');
+      }
+    } catch (e) {
+      log(job, 'warn', '点击提交失败，改用回车: ' + e.message.split('\n')[0]);
+      await pwdInput.press('Enter').catch(() => {});
+    }
 
   // 等待结果：跳回 www 域 / 错误提示 / 验证提示 / 人机验证
   const deadline = Date.now() + config.loginTimeoutMs;
@@ -349,17 +360,19 @@ async function doLogin(page, account, job) {
   const cookiesDiag = async () => {
     const cookies = await page.context().cookies().catch(() => []);
     const names = cookies.map(c => c.name);
-    // 真正的登录会话 cookie：sb_ 开头或含 session/auth 的
-    // 排除 OAuth 流程产物和 WAF token（auth_path / accounts-session-referrer /
-    // sb_domain_user_info / aws-waf-token 等，未登录时也会出现，不代表已登录）
+    // 真正的登录会话 cookie：① 属于 studentbeans.com 域 ② 名字像会话（sb_/session/auth）
+    // 排除 OAuth 流程产物（auth_path/accounts-session-referrer/sb_domain_user_info/aws-waf-token）
+    // 和第三方追踪 cookie（taboola_session_id 等域名的）
     const NOT_SESSION = /^(auth_path|accounts-session-referrer|sb_domain_user_info|aws-waf-token|client_id|redirect_uri|response_type|user_return_to|consumer_group)$/i;
-    const sessionLike = names.filter(n =>
-      /sb_|session|auth|token|jwt|login|remember/i.test(n) && !NOT_SESSION.test(n));
+    const sessionLike = cookies
+      .filter(c => /(^|\.)studentbeans\.com$/.test((c.domain || '').replace(/^\./, '')) &&
+        /sb_|session|auth|token|jwt|login|remember/i.test(c.name) && !NOT_SESSION.test(c.name))
+      .map(c => c.name);
     log(job, 'info', `诊断 Cookie(${names.length}个): ${names.slice(0, 40).join(', ')}${names.length > 40 ? ' …' : ''}`);
     log(job, sessionLike.length ? 'info' : 'warn',
       sessionLike.length
         ? `✅ 发现登录会话 Cookie: ${sessionLike.join(', ')}`
-        : '❌ 无登录会话 Cookie（sb_/session/auth 类，已排除 OAuth 流程产物）——登录从未认证');
+        : '❌ 无登录会话 Cookie（studentbeans 域的 sb_/session/auth 类，已排除 OAuth 流程产物和第三方追踪 cookie）——登录从未认证');
   };
   if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
     log(job, 'warn', '会话验证失败：访问优惠页被弹回登录页');
@@ -376,6 +389,11 @@ async function doLogin(page, account, job) {
   }
   log(job, 'info', '会话有效');
   return { ok: true, status: 'logged_in', message: '' };
+  } finally {
+    // 无论成功失败，停掉后台 Turnstile 监视器
+    tsWatcher.stop();
+    if (tsWatcher.state.clicked) log(job, 'info', 'Turnstile 监视器：本轮曾自动点击过复选框');
+  }
 }
 
 /** 会话验证失败时留一张现场截图 */
@@ -392,4 +410,4 @@ async function saveSessionFailShot(page, job) {
   } catch (e) { /* noop */ }
 }
 
-module.exports = { doLogin, isLoggedInOnSite, acceptCookies, forceRemoveOverlays, clickTurnstileCheckbox };
+module.exports = { doLogin, isLoggedInOnSite, acceptCookies, forceRemoveOverlays, clickTurnstileCheckbox, startTurnstileWatcher };

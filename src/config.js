@@ -38,6 +38,7 @@ const config = {
   // 超时与节奏（毫秒）
   navTimeoutMs: parseInt(env('NAV_TIMEOUT_MS', '60000'), 10),
   loginTimeoutMs: parseInt(env('LOGIN_TIMEOUT_MS', '90000'), 10),
+  turnstileWaitMs: parseInt(env('TURNSTILE_WAIT_MS', '120000'), 10),
   clickTimeoutMs: parseInt(env('CLICK_TIMEOUT_MS', '15000'), 10),
   stepDelayMs: parseInt(env('STEP_DELAY_MS', '1500'), 10),
   maxOffersPerRun: parseInt(env('MAX_OFFERS_PER_RUN', '20'), 10),
