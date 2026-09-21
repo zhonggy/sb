@@ -12,7 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
 const config = require('../config');
-const { log } = require('../utils');
+const { log, sleep } = require('../utils');
 const resin = require('./resin');
 
 const PROFILES_DIR = path.join(config.dataDir, 'profiles');
@@ -134,7 +134,23 @@ async function launchPlaywrightContext(accountId) {
     launchOpts.proxy = { server: config.proxyUrl };
   }
 
-  const context = await chromium.launchPersistentContext(profileDirFor(accountId), launchOpts);
+  // 启动；撞到 profile 锁残留（上次异常退出）时，清锁+杀残留进程后重试一次
+  let context = null;
+  try {
+    context = await chromium.launchPersistentContext(profileDirFor(accountId), launchOpts);
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    if (/profile.*in use|SingletonLock|process_singleton|has been closed/i.test(msg)) {
+      log(null, 'warn', `浏览器启动撞到 profile 锁（${msg.split('\n')[0].slice(0, 120)}），清理残留后重试一次…`);
+      const dir = profileDirFor(accountId);
+      killZombieBrowsers(dir);
+      cleanProfileLocks(dir);
+      await sleep(500);
+      context = await chromium.launchPersistentContext(dir, launchOpts);
+    } else {
+      throw e;
+    }
+  }
   await afterLaunch(context);
   return context;
 }
@@ -161,7 +177,23 @@ async function launchCloakContext(accountId) {
     opts.proxy = config.proxyUrl;
   }
   if (config.cloakLicenseKey) opts.licenseKey = config.cloakLicenseKey;
-  const context = await launchPersistentContext(opts);
+  // 启动；撞到 profile 锁残留时同样清锁重试一次
+  let context = null;
+  try {
+    context = await launchPersistentContext({ ...opts, userDataDir: profileDirFor(accountId) });
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    if (/profile.*in use|SingletonLock|process_singleton|has been closed/i.test(msg)) {
+      log(null, 'warn', `CloakBrowser 启动撞到 profile 锁，清理残留后重试一次…`);
+      const dir = profileDirFor(accountId);
+      killZombieBrowsers(dir);
+      cleanProfileLocks(dir);
+      await sleep(500);
+      context = await launchPersistentContext({ ...opts, userDataDir: dir });
+    } else {
+      throw e;
+    }
+  }
   await afterLaunch(context);
   // 预热导航：CloakBrowser 的 license 校验是惰性的（启动时不查，首次导航才触发），
   // 这里做一次真实导航把 license/会话限制类错误暴露出来——失败则关掉并抛出，
