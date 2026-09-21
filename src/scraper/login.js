@@ -70,6 +70,32 @@ async function isLoggedInOnSite(page) {
   }
 }
 
+/** 自动点击 Turnstile 复选框（技术思路来自 Cfpass CDP Extension）
+ *  Playwright 本身就是 CDP 驱动，frameLocator 可穿透跨域 iframe 和 Shadow DOM，
+ *  点击走浏览器真实输入事件，与手动点复选框等效。
+ *  先等 5 秒让复选框 iframe 和 Shadow DOM 加载好。 */
+async function clickTurnstileCheckbox(page, job, waitMs = 5000) {
+  try {
+    await sleep(waitMs);
+    const frame = page.frameLocator('iframe[src*="challenges.cloudflare.com"]');
+    const checkbox = frame.locator('input[type="checkbox"]').first();
+    const count = await checkbox.count().catch(() => 0);
+    if (!count) {
+      log(job, 'info', '未发现 Turnstile 复选框（可能无感模式已自动通过，或无需验证）');
+      return false;
+    }
+    log(job, 'info', '发现 Turnstile 复选框，自动点击…');
+    await checkbox.click({ timeout: 10000 }).catch(e => {
+      log(job, 'warn', '复选框点击失败: ' + e.message.split('\n')[0]);
+    });
+    await sleep(2000); // 等验证跑完
+    return true;
+  } catch (e) {
+    log(job, 'warn', 'Turnstile 点击流程异常: ' + e.message.split('\n')[0]);
+    return false;
+  }
+}
+
 async function waitTurnstileToken(page, job, timeoutMs = 20000) {
   // Turnstile 的隐藏 input[name=cf-turnstile-response] 通过后会有值
   try {
@@ -164,7 +190,8 @@ async function doLogin(page, account, job) {
   await pwdInput.fill(account.password);
   await sleep(500);
 
-  // Turnstile：先等它出 token（managed 模式通常自动通过）
+  // Turnstile：先自动点复选框（等 5 秒加载），再等 token（无感模式通常自动通过）
+  await clickTurnstileCheckbox(page, job, 5000);
   await waitTurnstileToken(page, job, 25000);
 
   // 提交按钮：Turnstile 通过前是 disabled，等它解除禁用（最多 45s）

@@ -173,7 +173,7 @@ Dockerfile 里用 `npm ci`（不用 `npm install` 回退），lock 不同步时�
 ## 🛠️ 常见问题
 
 **Q: 任务卡在登录，日志提示「提交按钮仍处于禁用状态」？**
-A: 这是 **Cloudflare Turnstile 人机验证**未通过（国内 IP + 无头环境高发）。按优先级尝试：
+A: 这是 **Cloudflare Turnstile 人机验证**未通过（国内 IP + 无头环境高发）。工具已内置**自动点击 Turnstile 复选框**（Playwright CDP 真实输入，思路来自 Cfpass CDP Extension）：填完账号密码后等 5 秒让复选框加载，出现即自动点。按优先级尝试：
 1. 把服务器放在**英国/海外**（Student Beans 对地区敏感，且 Turnstile 对住宅 IP 通过率高）
 2. 设 `PROXY_URL` 走住宅代理
 3. `HEADLESS=false` 接 VNC 手动过一次验证，profile 会记住会话
