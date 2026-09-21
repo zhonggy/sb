@@ -147,25 +147,6 @@ async function clickTurnstileCheckbox(page, job, waitMs = 5000, pollMs = 20000) 
   }
 }
 
-async function waitTurnstileToken(page, job, timeoutMs = 20000) {
-  // Turnstile 的隐藏 input[name=cf-turnstile-response] 通过后会有值
-  try {
-    await page.waitForFunction(
-      () => {
-        const el = document.querySelector('input[name="cf-turnstile-response"]');
-        return el && el.value && el.value.length > 20;
-      },
-      null,
-      { timeout: timeoutMs }
-    );
-    log(job, 'info', 'Turnstile 验证已通过');
-    return true;
-  } catch (e) {
-    log(job, 'warn', '未检测到 Turnstile token（可能无需验证或仍在挑战中）');
-    return false;
-  }
-}
-
 async function doLogin(page, account, job) {
   log(job, 'info', '打开主页准备登录…');
   await page.goto(config.siteUrl, { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs });
@@ -241,18 +222,47 @@ async function doLogin(page, account, job) {
   await pwdInput.fill(account.password);
   await sleep(500);
 
-  // Turnstile：先自动点复选框（等 5 秒加载），再等 token（无感模式通常自动通过）
-  await clickTurnstileCheckbox(page, job, 5000);
-  await waitTurnstileToken(page, job, 25000);
-
-  // 提交按钮：Turnstile 通过前是 disabled，等它解除禁用（最多 45s）
+  // 统一等待 Turnstile 验证（最多 60 秒）：
+  //  CF managed 模式先跑十几秒无感评估，失败后才升级显示复选框——
+  //  所以整个等待期持续监视，复选框一出现就点（只点一次）；
+  //  提交按钮解除禁用 或 token 出现 → 就绪。
   const submitSel = 'form button[type="submit"]:has-text("Log in"), button[type="submit"]:has-text("Log in")';
-  log(job, 'info', '等待提交按钮可用（Turnstile 验证）…');
-  const btnReady = await page.waitForSelector(
-    submitSel.split(',')[0] + ':not([disabled])',
-    { timeout: 45000 }
-  ).then(() => true).catch(() => false);
-  if (!btnReady) {
+  const submitEnabledSel = submitSel.split(',')[0] + ':not([disabled])';
+  log(job, 'info', '等待 Turnstile 验证通过…');
+  let btnReady = false;
+  let tsClicked = false;
+  let tsFrameLogged = false;
+  const tsDeadline = Date.now() + 60000;
+  while (Date.now() < tsDeadline) {
+    // 复选框监视（轻量轮询，不阻塞）
+    if (!tsClicked) {
+      const hasFrame = await page.locator('iframe[src*="challenges.cloudflare.com"]').count().catch(() => 0) > 0;
+      if (hasFrame) {
+        if (!tsFrameLogged) { tsFrameLogged = true; log(job, 'info', '检测到 Turnstile iframe，等待复选框渲染…'); }
+        const cb = page.frameLocator('iframe[src*="challenges.cloudflare.com"]').locator('input[type="checkbox"]').first();
+        if (await cb.count().catch(() => 0) > 0) {
+          log(job, 'info', '发现 Turnstile 复选框，自动点击…');
+          await cb.click({ timeout: 8000 }).catch(e => log(job, 'warn', '复选框点击失败: ' + e.message.split('\n')[0]));
+          tsClicked = true;
+          await sleep(2000);
+        }
+      } else if (!tsFrameLogged) {
+        tsFrameLogged = true;
+        log(job, 'info', '暂未发现 Turnstile iframe（无感模式或控件未加载），持续监视中…');
+      }
+    }
+    // 就绪判断：按钮解除禁用 或 token 已签发
+    btnReady = await page.locator(submitEnabledSel).count().catch(() => 0) > 0;
+    const tokenOk = await page.evaluate(() => {
+      const el = document.querySelector('input[name="cf-turnstile-response"]');
+      return !!(el && el.value && el.value.length > 20);
+    }).catch(() => false);
+    if (btnReady || tokenOk) break;
+    await sleep(1500);
+  }
+  if (btnReady) {
+    log(job, 'info', 'Turnstile 验证已通过');
+  } else {
     log(job, 'warn', '提交按钮仍处于禁用状态（Turnstile 未通过），尝试回车提交');
   }
 
