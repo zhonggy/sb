@@ -13,6 +13,9 @@ services:
       - TZ=${TZ:-Europe/London}
       - PORT=3920
       - HEADLESS=${HEADLESS:-true}
+      # 浏览器渠道：chromium = 完整版 Chromium（新无头模式，比默认 headless shell 更难被
+      # Cloudflare 识别，过 Turnstile 通过率更高）；置空则用 Playwright 默认
+      - PW_CHANNEL=${PW_CHANNEL:-chromium}
       # 定时任务（服务器本地时区受 TZ 影响，代码默认按 Europe/London 解析）
       - SCHEDULE_ENABLED=${SCHEDULE_ENABLED:-false}
       - SCHEDULE_CRON=${SCHEDULE_CRON:-0 8 * * *}

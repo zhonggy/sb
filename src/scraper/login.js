@@ -93,7 +93,7 @@ async function clickTurnstileCheckbox(page, job, waitMs = 5000, pollMs = 20000) 
       if (!hasFrame) await sleep(1000);
     }
     if (!hasFrame) {
-      log(job, 'info', '未发现 Turnstile iframe（可能无感模式已自动通过，或无需验证）');
+      log(job, 'info', '未发现 Turnstile iframe（无感模式可能已通过；若按钮仍禁用则可能是控件被 IP 风控未加载）');
       return out;
     }
     const frame = page.frameLocator('iframe[src*="challenges.cloudflare.com"]');

@@ -172,12 +172,13 @@ Dockerfile 里用 `npm ci`（不用 `npm install` 回退），lock 不同步时�
 
 ## 🛠️ 常见问题
 
-**Q: 任务卡在登录，日志提示「提交按钮仍处于禁用状态」？**
-A: 这是 **Cloudflare Turnstile 人机验证**未通过（国内 IP + 无头环境高发）。工具已内置**自动点击 Turnstile 复选框**（Playwright CDP 真实输入，思路来自 Cfpass CDP Extension）：填完账号密码后等 5 秒让复选框加载，出现即自动点。按优先级尝试：
-1. 把服务器放在**英国/海外**（Student Beans 对地区敏感，且 Turnstile 对住宅 IP 通过率高）
-2. 设 `PROXY_URL` 走住宅代理
-3. `HEADLESS=false` 接 VNC 手动过一次验证，profile 会记住会话
-4. 终极方案（最稳）：在自己电脑浏览器登录后，用「导入Cookie」粘贴 Cookie（见上文手动登录教程），完全不走自动登录
+**Q: 任务卡在登录，日志提示「提交按钮仍处于禁用状态」/「未发现 Turnstile iframe」？**
+A: 这是 **Cloudflare Turnstile 人机验证**未通过（国内 IP + 无头环境高发）。工具已内置**自动点击 Turnstile 复选框**（Playwright CDP 真实输入，思路来自 Cfpass CDP Extension）：填完账号密码后等 5 秒让复选框加载，出现即自动点。日志里「诊断 Cookie」如果没有 `sb_*`/session 类 Cookie，即证明登录从未认证成功。按优先级尝试：
+1. 确认 `PW_CHANNEL=chromium`（docker-compose 默认已配）——完整版 Chromium 新无头模式比默认 headless shell 更难被 CF 识别，通过率明显更高
+2. 把服务器放在**英国/海外**（Student Beans 对地区敏感，且 Turnstile 对住宅 IP 通过率高）
+3. 设 `PROXY_URL` 走住宅代理
+4. `HEADLESS=false` 接 VNC 手动过一次验证，profile 会记住会话
+5. 终极方案（最稳）：在自己电脑浏览器登录后，用「导入Cookie」粘贴 Cookie（见上文手动登录教程），完全不走自动登录
 
 **Q: 日志显示「登录成功」但点击优惠码又被弹回登录页？**
 A: 旧版本曾因 OAuth 回调中间页（无导航栏）误判登录态。新版已加「功能校验」：登录后会真实访问一次优惠页确认会话有效，无效则明确报错并保存 `session-verify-fail.png` + Cookie 诊断日志。若遇到此报错，请把日志里「诊断 Cookie」那几行发给我。
