@@ -161,6 +161,15 @@ function renderSettings() {
   $('#scheduler-status').textContent = state.settings.scheduleEnabled
     ? `定时: ${state.settings.scheduleCron}` : '定时: 未启用';
   $('#scheduler-status').className = 'badge ' + (state.settings.scheduleEnabled ? 'ok' : 'muted');
+  const rs = $('#resin-status');
+  if (state.resin && state.resin.enabled) {
+    rs.classList.remove('hidden');
+    rs.textContent = `代理: Resin(${state.resin.platform})`;
+    rs.title = `Resin 粘性代理已启用：${state.resin.url}（按账号分配粘性 IP）`;
+    rs.className = 'badge ok';
+  } else {
+    rs.classList.add('hidden');
+  }
 }
 
 function escapeHtml(s) {

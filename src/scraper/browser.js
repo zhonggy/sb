@@ -13,6 +13,7 @@ const fs = require('fs');
 const { chromium } = require('playwright');
 const config = require('../config');
 const { log } = require('../utils');
+const resin = require('./resin');
 
 const PROFILES_DIR = path.join(config.dataDir, 'profiles');
 
@@ -79,7 +80,12 @@ async function launchPlaywrightContext(accountId) {
     ],
     ignoreDefaultArgs: ['--enable-automation'],
   };
-  if (config.proxyUrl) launchOpts.proxy = { server: config.proxyUrl };
+  // 代理优先级：Resin 粘性代理池（按账号）> 传统 PROXY_URL
+  if (resin.isEnabled()) {
+    launchOpts.proxy = resin.forwardProxy(accountId);
+  } else if (config.proxyUrl) {
+    launchOpts.proxy = { server: config.proxyUrl };
+  }
 
   const context = await chromium.launchPersistentContext(profileDirFor(accountId), launchOpts);
   await afterLaunch(context);
@@ -100,7 +106,13 @@ async function launchCloakContext(accountId) {
     geoip: config.cloakGeoip,
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   };
-  if (config.proxyUrl) opts.proxy = config.proxyUrl;
+  // 代理优先级：Resin 粘性代理池（按账号）> 传统 PROXY_URL
+  if (resin.isEnabled()) {
+    // CloakBrowser 的 proxy 是字符串形式 http://user:pass@host:port
+    opts.proxy = resin.forwardProxyUrl(accountId);
+  } else if (config.proxyUrl) {
+    opts.proxy = config.proxyUrl;
+  }
   if (config.cloakLicenseKey) opts.licenseKey = config.cloakLicenseKey;
   const context = await launchPersistentContext(opts);
   await afterLaunch(context);
@@ -119,6 +131,9 @@ async function afterLaunch(context) {
 }
 
 async function launchContext(accountId) {
+  if (resin.isEnabled()) {
+    log(null, 'info', `Resin 粘性代理: Platform=${config.resinPlatformName} Account=${accountId}（${resin.maskUrl(config.resinUrl)}）`);
+  }
   if (config.browserEngine === 'cloak') {
     try {
       log(null, 'info', `浏览器引擎: CloakBrowser（humanize=${config.cloakHumanize}${config.cloakLicenseKey ? '，已配置 license key' : '，无 key 使用免费版'}）`);
@@ -131,4 +146,4 @@ async function launchContext(accountId) {
 }
 
 /** 给已存在的 context 追加 init script 的辅助（保持向后兼容） */
-module.exports = { launchContext, profileDirFor, initScript };
+module.exports = { launchContext, profileDirFor, initScript, resin };

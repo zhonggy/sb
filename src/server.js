@@ -66,6 +66,7 @@ app.use('/api', sessionAuth);
 app.get('/api/bootstrap', (req, res) => {
   const jobs = store.listJobs().slice(0, 50);
   const artDir = path.join(config.dataDir, 'artifacts');
+  const resinMod = require('./scraper/resin');
   res.json({
     accounts: store.listAccounts().map(maskAccount),
     jobs: jobs.map(j => ({
@@ -78,6 +79,9 @@ app.get('/api/bootstrap', (req, res) => {
     results: store.listResults(null, 200),
     settings: store.getSettings(),
     scheduler: { enabled: !!store.getSettings().scheduleEnabled, cron: store.getSettings().scheduleCron },
+    resin: resinMod.isEnabled()
+      ? { enabled: true, platform: config.resinPlatformName, url: resinMod.maskUrl(config.resinUrl) }
+      : { enabled: false },
     queue: { pending: jobRunner.activeJobs.size },
   });
 });

@@ -23,6 +23,11 @@ const config = {
   locale: env('BROWSER_LOCALE', 'en-GB'),
   timezoneId: env('BROWSER_TZ', 'Europe/London'),
   proxyUrl: env('PROXY_URL', '') || undefined,
+
+  // Resin 粘性代理池（为空则禁用）。任何涉及具体账号的网络请求都会走它。
+  // resin_url 含代理地址与 Token，如 http://127.0.0.1:2260/my-token
+  resinUrl: env('RESIN_URL', ''),
+  resinPlatformName: env('RESIN_PLATFORM_NAME', 'Default'),
   userAgent: env(
     'USER_AGENT',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'

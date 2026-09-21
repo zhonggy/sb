@@ -29,6 +29,9 @@ services:
       - SCHEDULE_CRON=${SCHEDULE_CRON:-0 8 * * *}
       # 走代理登录（可选，例如住宅代理更稳）
       - PROXY_URL=${PROXY_URL:-}
+      # Resin 粘性代理池（可选，优先于 PROXY_URL）：按账号分配粘性 IP
+      - RESIN_URL=${RESIN_URL:-}
+      - RESIN_PLATFORM_NAME=${RESIN_PLATFORM_NAME:-Default}
     volumes:
       # 账号/结果/浏览器会话/截图 全部持久化
       - ./data:/app/data

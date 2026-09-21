@@ -203,6 +203,46 @@ Dockerfile 里用 `npm ci`（不用 `npm install` 回退），lock 不同步时�
 
 > 注意：CloakBrowser 解决的是**浏览器指纹**层面，不改变 IP 信誉——数据中心 IP 仍可能被拦。配合住宅代理（`PROXY_URL`）效果最佳；Cookie 导入永远是最稳的保底。
 
+## 🌐 Resin 粘性代理池（可选）
+
+数据中心 IP 会被 Cloudflare 按 IP 信誉拦截（Turnstile 不渲染控件）。接入 Resin 代理池后，**每个账号走自己的粘性出口 IP**，同一账号多次运行 IP 不变（会话/风控更稳）。
+
+### 配置
+
+`.env`：
+
+```bash
+# 代理地址 + Token
+RESIN_URL=http://127.0.0.1:2260/my-token
+# Platform（Resin 业务身份）
+RESIN_PLATFORM_NAME=Default
+```
+
+启用后控制台顶栏显示 `代理: Resin(Default)`，任务日志会打印：
+
+```
+Resin 粘性代理: Platform=Default Account=acc_xxxx（http://127.0.0.1:2260/***）
+```
+
+### 接入方式
+
+| 方式 | 用途 | 实现 |
+|---|---|---|
+| **正向代理**（主） | 浏览器全部流量（登录、优惠页、iframe、子资源） | 启动浏览器时 proxy 指向 Resin，Proxy Auth 用户名 `Platform.Account`、密码 Token（`src/scraper/resin.js` 自动处理） |
+| **反向代理**（辅） | Node 直连请求（备用） | `resin.reverseProxyFetch(targetUrl, accountId)`，自动拼 `<resin_url>/Platform/protocol/host/path` 并带 `X-Resin-Account` 头 |
+
+### 账号身份（Account）设计
+
+- 使用 **account.id**（创建时生成、永不改变）——登录前就存在，Resin 眼里同一账号始终同一身份，IP 租约稳定
+- 因此**不需要** TempIdentity + `inherit-lease` 流程
+- ⚠️ 不要在邮箱/Token 之间切换标识，否则 Resin 会当成两个身份、IP 漂移
+
+### 搭配建议
+
+- Resin（住宅 IP）+ CloakBrowser（`BROWSER_ENGINE=cloak`）是过 Turnstile 的完全体：IP 信誉和浏览器指纹都解决
+- 出口在海外时建议开 `CLOAKBROWSER_GEOIP=true`（按出口 IP 自动设置时区/语言，与 IP 一致降低可疑度）
+- `RESIN_URL` 优先于传统 `PROXY_URL`
+
 ## 🛠️ 常见问题
 
 **Q: 任务卡在登录，日志提示「提交按钮仍处于禁用状态」/「未发现 Turnstile iframe」？**
