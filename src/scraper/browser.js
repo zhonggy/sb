@@ -17,9 +17,56 @@ const resin = require('./resin');
 
 const PROFILES_DIR = path.join(config.dataDir, 'profiles');
 
+/** 杀掉仍占用该 profile 的僵尸 Chromium 进程（上次异常退出/容器重启的残留）。
+ *  调用时机在启动新浏览器之前，此时命中的进程必然是残留（串行队列不会有正常运行的）。 */
+function killZombieBrowsers(dir) {
+  try {
+    if (!fs.existsSync('/proc')) return 0; // 非 Linux
+    const pids = fs.readdirSync('/proc').filter(p => /^\d+$/.test(p));
+    let killed = 0;
+    for (const pid of pids) {
+      try {
+        const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+        if (cmd.includes(dir) && /chrome|chromium/i.test(cmd)) {
+          process.kill(Number(pid), 'SIGKILL');
+          killed++;
+        }
+      } catch (e) { /* 进程已消失或无权限 */ }
+    }
+    if (killed > 0) {
+      log(null, 'warn', `杀死了 ${killed} 个占用该 profile 的残留浏览器进程（${dir}）`);
+    }
+    return killed;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/** Chromium profile 锁文件（上次异常退出会残留，导致新启动报
+ *  "The profile appears to be in use by another Chromium process" / exitCode=21）。
+ *  任务队列是串行的、每账号同时只有一个浏览器，启动前清理是安全的。 */
+function cleanProfileLocks(dir) {
+  const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+  let removed = 0;
+  for (const f of locks) {
+    try {
+      if (fs.existsSync(path.join(dir, f))) {
+        fs.unlinkSync(path.join(dir, f));
+        removed++;
+      }
+    } catch (e) { /* 占用中或权限问题则忽略 */ }
+  }
+  if (removed > 0) {
+    log(null, 'warn', `清理了 ${removed} 个残留的 Chromium profile 锁文件（${dir}）——上次浏览器异常退出导致`);
+  }
+  return removed;
+}
+
 function profileDirFor(accountId) {
   const dir = path.join(PROFILES_DIR, accountId);
   fs.mkdirSync(dir, { recursive: true });
+  killZombieBrowsers(dir);
+  cleanProfileLocks(dir);
   return dir;
 }
 
