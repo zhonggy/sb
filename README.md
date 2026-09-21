@@ -65,15 +65,37 @@ npm start                                      # 默认 http://localhost:3920
 
 ### 🍪 手动登录一次，导入 Cookie（推荐，彻底绕过人机验证）
 
-自动登录会被 Cloudflare Turnstile 拦截时，用手动登录拿到的 Cookie 最稳：
+自动登录会被 Cloudflare Turnstile 拦截时，用手动登录拿到的 Cookie 最稳。三种方法任选其一：
+
+#### 方法 A：`document.cookie` 一行代码（最简单，10 秒）
 
 1. 在**自己电脑的浏览器**登录 `www.studentbeans.com`
-2. `F12` → **Network** → 刷新页面 → 点任意一条 `studentbeans.com` 请求
-3. **Request Headers** 里找到 `Cookie:`，复制冒号后**整串**
-4. 控制台账号卡片点 「导入Cookie」→ 粘贴 → 「解析预览」（应提示识别到 N 条、含会话 Cookie）→ 「保存并启用」
-5. 点「▶ 运行」——有 Cookie 时优先走 Cookie，无效才回退密码登录
+2. 按 `F12` 打开开发者工具 → 点 **Console**（控制台）标签
+3. 在输入框粘贴下面这行代码，按**回车**：
 
-也支持 Cookie 编辑器扩展导出的 JSON、`cookies.txt` 文件内容，粘贴时自动识别。
+   ```javascript
+   document.cookie
+   ```
+
+4. 复制输出的一整串（类似 `"sb_session=eyJhbG...; _ga=GA1.2..."`，带不带两边引号都行，程序会自动处理）
+5. 控制台账号卡片点 「导入Cookie」→ 粘贴 → **解析预览** → **保存并启用**
+
+> 若输出是空的 `""`，说明会话 Cookie 是 httpOnly（JS 读不到），用方法 B。
+
+#### 方法 B：Copy as cURL（方法 A 输出为空时用）
+
+1. `F12` → **Network**（网络）→ 按 `F5` 刷新页面
+2. 在请求列表里**右键**点任意一条 `studentbeans.com` 的请求
+3. 菜单选 **Copy** → **Copy as cURL (bash)**
+4. 回到控制台「导入Cookie」框，**整段粘贴**（很长不用管，程序会自动提取其中的 `cookie:` 部分）
+
+#### 方法 C：Request Headers 手动复制
+
+1. `F12` → **Network** → `F5` 刷新 → 点任意一条 `studentbeans.com` 请求
+2. 右侧面板找到 **Request Headers**（请求标头，不是 Response Headers）
+3. 找到 `cookie:` 开头的行，复制冒号后**整串**
+
+粘贴后程序自动识别格式（请求头字符串 / cURL 命令 / JSON / cookies.txt）。保存后点「▶ 运行」——有 Cookie 时优先走 Cookie，无效才回退密码登录。
 
 ## 🏗️ 架构
 
