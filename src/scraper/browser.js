@@ -1,11 +1,18 @@
 /**
  * 浏览器管理：Playwright 持久化上下文（每账号独立 profile，自动复用 Cookie 会话）
  * + 反检测初始化脚本 + clipboard / window.open 劫持（用于捕获优惠码和跳转链接）
+ *
+ * 两种引擎（BROWSER_ENGINE 环境变量切换）：
+ *   playwright（默认）——Playwright 自带/完整 Chromium
+ *   cloak——CloakBrowser 源码级隐身 Chromium（87 个 C++ 补丁，过 Cloudflare
+ *           Turnstile 通过率更高；免费版无需 key，最新版需 license key；
+ *           启动失败自动回退到 playwright，不影响主流程）
  */
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
 const config = require('../config');
+const { log } = require('../utils');
 
 const PROFILES_DIR = path.join(config.dataDir, 'profiles');
 
@@ -55,7 +62,7 @@ const initScript = () => {
   };
 };
 
-async function launchContext(accountId) {
+async function launchPlaywrightContext(accountId) {
   const launchOpts = {
     headless: config.headless,
     channel: config.channel,
@@ -75,14 +82,52 @@ async function launchContext(accountId) {
   if (config.proxyUrl) launchOpts.proxy = { server: config.proxyUrl };
 
   const context = await chromium.launchPersistentContext(profileDirFor(accountId), launchOpts);
+  await afterLaunch(context);
+  return context;
+}
+
+/** CloakBrowser 引擎（ESM 包，CJS 用动态 import） */
+async function launchCloakContext(accountId) {
+  const { launchPersistentContext } = await import('cloakbrowser');
+  const opts = {
+    userDataDir: profileDirFor(accountId),
+    headless: config.headless,
+    locale: config.locale,
+    timezone: config.timezoneId,
+    userAgent: config.userAgent,
+    viewport: { width: 1366, height: 900 },
+    humanize: config.cloakHumanize,
+    geoip: config.cloakGeoip,
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  };
+  if (config.proxyUrl) opts.proxy = config.proxyUrl;
+  if (config.cloakLicenseKey) opts.licenseKey = config.cloakLicenseKey;
+  const context = await launchPersistentContext(opts);
+  await afterLaunch(context);
+  return context;
+}
+
+/** 启动后的通用处理：注入捕获脚本 + 剪贴板权限 */
+async function afterLaunch(context) {
   await context.addInitScript(initScript);
-  // 授予剪贴板权限（http/https 源）
   try {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
       origin: 'https://www.studentbeans.com',
     });
   } catch (e) { /* 某些渠道不支持则忽略 */ }
   return context;
+}
+
+async function launchContext(accountId) {
+  if (config.browserEngine === 'cloak') {
+    try {
+      log(null, 'info', `浏览器引擎: CloakBrowser（humanize=${config.cloakHumanize}${config.cloakLicenseKey ? '，已配置 license key' : '，无 key 使用免费版'}）`);
+      return await launchCloakContext(accountId);
+    } catch (e) {
+      log(null, 'warn', `CloakBrowser 启动失败，回退到 Playwright 引擎: ${String(e && e.message || e).split('\n')[0]}`);
+    }
+  }
+  return launchPlaywrightContext(accountId);
 }
 
 /** 给已存在的 context 追加 init script 的辅助（保持向后兼容） */

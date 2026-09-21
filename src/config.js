@@ -28,6 +28,13 @@ const config = {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
   ),
 
+  // 浏览器引擎：playwright（默认）| cloak（CloakBrowser 源码级隐身 Chromium）
+  // cloak 对 Cloudflare Turnstile 通过率更高；启动失败会自动回退到 playwright
+  browserEngine: env('BROWSER_ENGINE', 'playwright').toLowerCase(),
+  cloakLicenseKey: env('CLOAKBROWSER_LICENSE_KEY', ''),
+  cloakHumanize: env('CLOAKBROWSER_HUMANIZE', 'true') === 'true',
+  cloakGeoip: env('CLOAKBROWSER_GEOIP', 'false') === 'true',
+
   // 超时与节奏（毫秒）
   navTimeoutMs: parseInt(env('NAV_TIMEOUT_MS', '60000'), 10),
   loginTimeoutMs: parseInt(env('LOGIN_TIMEOUT_MS', '90000'), 10),

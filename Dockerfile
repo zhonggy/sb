@@ -20,6 +20,17 @@ RUN npm ci --omit=dev
 COPY src ./src
 COPY public ./public
 
+# CloakBrowser 隐身 Chromium 二进制预下载
+# - 传了 CLOAKBROWSER_LICENSE_KEY（build-arg）→ 下载对应 license 的最新版
+# - PRELOAD_CLOAK=1 → 无 key 也预下载免费版（v146）
+# - 都没传 → 跳过，首次使用 cloak 引擎时运行时下载（约 200MB，可能较慢）
+# 下载失败不阻断构建，运行时会重试。
+ARG CLOAKBROWSER_LICENSE_KEY=
+ARG PRELOAD_CLOAK=0
+RUN if [ -n "$CLOAKBROWSER_LICENSE_KEY" ] || [ "$PRELOAD_CLOAK" = "1" ]; then \
+      node -e "const {ensureBinary}=require('cloakbrowser');ensureBinary().then(i=>console.log('cloakbrowser 就绪:',(i&&i.version)||i)).catch(e=>console.log('cloakbrowser 预下载失败（运行时重试）:',e.message))"; \
+    else echo 'skip cloak preload（构建时加 --build-arg PRELOAD_CLOAK=1 可启用）'; fi
+
 # 数据卷：账号、任务、结果、浏览器 profile、截图都持久化在这里
 RUN mkdir -p /app/data && chmod -R 777 /app/data
 VOLUME ["/app/data"]

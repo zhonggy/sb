@@ -1,6 +1,11 @@
 services:
   voxi-extractor:
-    build: .
+    build:
+      context: .
+      args:
+        # 传了 key 则构建时预下载对应版本的 CloakBrowser 二进制；PRELOAD_CLOAK=1 可强制预下载免费版
+        - CLOAKBROWSER_LICENSE_KEY=${CLOAKBROWSER_LICENSE_KEY:-}
+        - PRELOAD_CLOAK=${PRELOAD_CLOAK:-0}
     image: voxi-extractor:latest
     container_name: voxi-extractor
     restart: unless-stopped
@@ -13,9 +18,12 @@ services:
       - TZ=${TZ:-Europe/London}
       - PORT=3920
       - HEADLESS=${HEADLESS:-true}
-      # 浏览器渠道：chromium = 完整版 Chromium（新无头模式，比默认 headless shell 更难被
-      # Cloudflare 识别，过 Turnstile 通过率更高）；置空则用 Playwright 默认
+      # 浏览器渠道（playwright 引擎用）：chromium = 完整版 Chromium（新无头模式，比默认
+      # headless shell 更难被 Cloudflare 识别）；置空则用 Playwright 默认
       - PW_CHANNEL=${PW_CHANNEL:-chromium}
+      # 浏览器引擎：playwright（默认）| cloak（CloakBrowser 隐身 Chromium，过 Turnstile 更强）
+      - BROWSER_ENGINE=${BROWSER_ENGINE:-playwright}
+      - CLOAKBROWSER_LICENSE_KEY=${CLOAKBROWSER_LICENSE_KEY:-}
       # 定时任务（服务器本地时区受 TZ 影响，代码默认按 Europe/London 解析）
       - SCHEDULE_ENABLED=${SCHEDULE_ENABLED:-false}
       - SCHEDULE_CRON=${SCHEDULE_CRON:-0 8 * * *}

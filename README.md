@@ -170,6 +170,39 @@ Dockerfile 里用 `npm ci`（不用 `npm install` 回退），lock 不同步时�
 - 建议控制频率（默认 1.5s 间隔、每天最多几次），并对代理 IP 友好使用
 - 「待验证」状态请通过官方邮件完成验证，**不要**尝试绕过验证机制
 
+## 🛡️ CloakBrowser 隐身引擎（可选，过 Turnstile 更强）
+
+内置两种浏览器引擎，用 `BROWSER_ENGINE` 切换：
+
+| 引擎 | 说明 |
+|---|---|
+| `playwright`（默认） | Playwright 完整版 Chromium + init script 反检测，改动最小 |
+| `cloak` | [CloakBrowser](https://github.com/CloakHQ/CloakBrowser)——源码级打了 87 个 C++ 隐身补丁的 Chromium，对 Cloudflare Turnstile / DataDome / Kasada 等通过率显著更高 |
+
+`cloak` 引擎**启动失败会自动回退**到 `playwright`，不影响主流程；Cookie 导入通道始终可用。
+
+### 启用步骤
+
+1. 拿免费 license key：[cloakbrowser.dev/free](https://cloakbrowser.dev/free)（GitHub 登录，1 并发会话，单账号够用；不填则用旧版免费二进制 v146，会随检测演进而过时）
+2. `.env` 里配置：
+   ```bash
+   BROWSER_ENGINE=cloak
+   CLOAKBROWSER_LICENSE_KEY=cb_xxxxxxxx
+   # 构建时预下载二进制（约 200MB，避免首次运行卡住）
+   PRELOAD_CLOAK=1
+   ```
+3. `docker compose up -d --build`（传了 key 或 `PRELOAD_CLOAK=1` 时会在构建阶段下载二进制）
+
+### 调优参数
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `CLOAKBROWSER_HUMANIZE` | `true` | 人类化鼠标/键盘/滚动轨迹，抗风控建议开；纯速度可关 |
+| `CLOAKBROWSER_GEOIP` | `false` | 按代理 IP 自动设置时区/语言。**无代理时不要开**（会按服务器 IP 设置） |
+| `HEADLESS` | `true` | 激进站点下官方建议 `false`（容器内靠 Xvfb 渲染，功能不受影响） |
+
+> 注意：CloakBrowser 解决的是**浏览器指纹**层面，不改变 IP 信誉——数据中心 IP 仍可能被拦。配合住宅代理（`PROXY_URL`）效果最佳；Cookie 导入永远是最稳的保底。
+
 ## 🛠️ 常见问题
 
 **Q: 任务卡在登录，日志提示「提交按钮仍处于禁用状态」/「未发现 Turnstile iframe」？**
