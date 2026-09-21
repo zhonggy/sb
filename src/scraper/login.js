@@ -11,12 +11,36 @@
 const config = require('../config');
 const { sleep, log } = require('../utils');
 
-/** 强制移除 Cookie 遮罩（深色遮罩会拦截页面所有点击） */
+/** 强制移除遮挡页面的浮层（会拦截点击）：
+ *  ① OneTrust Cookie 横幅/深色遮罩
+ *  ② Student Beans 的「Chrome 扩展推广」弹窗（每次访问都会出现，挡住右上角导航和页面操作） */
 async function forceRemoveOverlays(page, job) {
   const removed = await page.evaluate(() => {
     let n = 0;
     for (const s of ['#onetrust-consent-sdk', '.onetrust-pc-dark-filter']) {
       document.querySelectorAll(s).forEach(e => { e.remove(); n++; });
+    }
+    // Chrome 扩展推广弹窗：按面积从大到小移除最外层容器（子孙随之消失）
+    const promoRe = /chrome extension|never miss deals|add now for free/i;
+    const sels = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]', '[class*="overlay" i]'];
+    let nodes = [...document.querySelectorAll(sels.join(','))]
+      .filter(el => promoRe.test(el.innerText || '') && (el.offsetWidth || el.offsetHeight));
+    if (!nodes.length) {
+      // 兜底：固定/绝对定位的含关键词容器
+      nodes = [...document.querySelectorAll('div, section, aside')].filter(el => {
+        const st = getComputedStyle(el);
+        return promoRe.test(el.innerText || '') && (st.position === 'fixed' || st.position === 'absolute') &&
+               el.getBoundingClientRect().width > 200;
+      });
+    }
+    const area = el => { const r = el.getBoundingClientRect(); return r.width * r.height; };
+    nodes.sort((a, b) => area(b) - area(a));
+    const handled = new Set();
+    for (const el of nodes) {
+      if (handled.has(el) || !el.isConnected) continue;
+      el.remove();
+      n++;
+      el.querySelectorAll('*').forEach(d => handled.add(d));
     }
     return n;
   }).catch(() => 0);
@@ -314,7 +338,11 @@ async function doLogin(page, account, job) {
   await sleep(2500);
   const cookiesDiag = async () => {
     const cookies = await page.context().cookies().catch(() => []);
-    log(job, 'info', '诊断 Cookie: ' + cookies.map(c => c.name).slice(0, 20).join(', '));
+    const names = cookies.map(c => c.name);
+    const sessionLike = names.filter(n => /sb_|session|auth|token|jwt|login|remember/i.test(n));
+    log(job, 'info', `诊断 Cookie(${names.length}个): ${names.slice(0, 40).join(', ')}${names.length > 40 ? ' …' : ''}`);
+    log(job, sessionLike.length ? 'info' : 'warn',
+      sessionLike.length ? `会话类 Cookie: ${sessionLike.join(', ')}` : '未发现任何会话类 Cookie（sb_/session/auth/token）——登录未认证');
   };
   if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
     log(job, 'warn', '会话验证失败：访问优惠页被弹回登录页');
