@@ -48,17 +48,25 @@ function killZombieBrowsers(dir) {
 function cleanProfileLocks(dir) {
   const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
   let removed = 0;
+  const details = [];
   for (const f of locks) {
+    const p = path.join(dir, f);
     try {
-      if (fs.existsSync(path.join(dir, f))) {
-        fs.unlinkSync(path.join(dir, f));
+      if (fs.existsSync(p)) {
+        let target = '';
+        try { target = ' -> ' + fs.readlinkSync(p); } catch (e) { /* 不是 symlink */ }
+        fs.unlinkSync(p);
         removed++;
+        details.push(`已删 ${f}${target}`);
       }
-    } catch (e) { /* 占用中或权限问题则忽略 */ }
+    } catch (e) {
+      details.push(`${f} 删除失败: ${e.message}`);
+    }
   }
-  if (removed > 0) {
-    log(null, 'warn', `清理了 ${removed} 个残留的 Chromium profile 锁文件（${dir}）——上次浏览器异常退出导致`);
-  }
+  // 无论有没有删到都打日志——「无锁文件但 Chrome 仍报占用」是重要诊断线索
+  // （说明锁被活进程瞬间重建，或有外部容器/机器在占用同一数据卷）
+  log(null, removed > 0 ? 'warn' : 'info',
+    `profile 锁检查（${dir}）: ${details.length ? details.join('；') : '未发现锁文件'}`);
   return removed;
 }
 
