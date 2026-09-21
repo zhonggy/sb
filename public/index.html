@@ -112,6 +112,34 @@
 
       <div class="card">
         <div class="card-head">
+          <h2>🌐 Resin 粘性代理</h2>
+          <span id="resin-card-status" class="badge muted">未配置</span>
+        </div>
+        <div class="stack">
+          <label class="stack">
+            <span>Resin URL（含 Token）</span>
+            <input id="resin-url" placeholder="http://127.0.0.1:2260/my-token" autocomplete="off">
+          </label>
+          <label class="stack">
+            <span>Platform 名称</span>
+            <input id="resin-platform" placeholder="Default">
+          </label>
+          <label class="stack">
+            <span>测试身份（Account：用哪个账号的粘性线路测试）</span>
+            <select id="resin-test-account"></select>
+          </label>
+          <div class="row">
+            <button class="btn primary small" id="btn-resin-test">测试连通</button>
+            <button class="btn small" id="btn-resin-save">保存并启用</button>
+            <button class="btn small danger" id="btn-resin-clear">清除</button>
+          </div>
+          <div id="resin-test-result" class="cookie-preview"></div>
+          <p class="hint">同一账号经 Resin 始终获得同一出口 IP（粘性）。保存后下次任务启动浏览器即生效，无需重启；清除则回退 .env 配置。反代/正代都通过才算完全可用。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
           <h2>🖥️ 实时日志</h2>
           <button class="btn ghost small" id="btn-clear-log">清空</button>
         </div>

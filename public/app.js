@@ -2,7 +2,7 @@
 'use strict';
 
 const $ = s => document.querySelector(s);
-const state = { accounts: [], jobs: [], results: [], settings: {}, authRequired: false };
+const state = { accounts: [], jobs: [], results: [], settings: {}, authRequired: false, resinDetail: {} };
 
 /* ---------- 工具 ---------- */
 function toast(msg, type = 'info') {
@@ -300,6 +300,91 @@ $('#btn-save-settings').addEventListener('click', async () => {
 $('#filter-account').addEventListener('change', renderResults);
 $('#btn-refresh-results').addEventListener('click', () => api('/api/results').then(d => { state.results = d.results; renderResults(); }));
 
+/* ---------- Resin 代理卡片 ---------- */
+function renderResinCard() {
+  const d = state.resinDetail || {};
+  const badge = $('#resin-card-status');
+  if (d.enabled) {
+    badge.textContent = d.source === 'settings' ? '已启用(控制台)' : '已启用(.env)';
+    badge.className = 'badge ok';
+  } else {
+    badge.textContent = '未配置';
+    badge.className = 'badge muted';
+  }
+  // 测试身份下拉
+  const sel = $('#resin-test-account');
+  const cur = sel.value;
+  sel.innerHTML = state.accounts.length
+    ? state.accounts.map(a => `<option value="${a.id}">${escapeHtml(a.label || a.email)}（${a.id}）</option>`).join('')
+    : '<option value="">（暂无账号，将用 acc_connectivity_test）</option>';
+  if (state.accounts.some(a => a.id === cur)) sel.value = cur;
+  // 表单：控制台保存过的值原样回显；.env 提供的不回显明文，只在占位符提示
+  if (d.savedUrl) $('#resin-url').value = d.savedUrl;
+  if (d.savedPlatform) $('#resin-platform').value = d.savedPlatform;
+  if (d.enabled && d.source === 'env') {
+    $('#resin-url').placeholder = `当前 .env: ${d.url}（输入新值可覆盖并保存到控制台）`;
+  } else if (!d.enabled) {
+    $('#resin-url').placeholder = 'http://127.0.0.1:2260/my-token';
+  }
+}
+
+$('#btn-resin-test').addEventListener('click', async () => {
+  const btn = $('#btn-resin-test');
+  const urlVal = $('#resin-url').value.trim();
+  if (!urlVal && !(state.resinDetail && state.resinDetail.enabled)) {
+    return toast('请先填写 Resin URL（或确认已有生效配置）', 'error');
+  }
+  btn.disabled = true;
+  $('#resin-test-result').innerHTML = '<span class="warn">测试中…（反代 + 正代各发一次请求，最多等 15 秒）</span>';
+  try {
+    const r = await api('/api/resin/test', {
+      method: 'POST',
+      body: {
+        resinUrl: urlVal,
+        platformName: $('#resin-platform').value.trim(),
+        accountId: $('#resin-test-account').value,
+      },
+    });
+    const line = (name, x) => x
+      ? `<div>${x.ok ? '✅' : '❌'} <b>${name}</b>：${x.ok ? `出口 IP <b>${escapeHtml(x.ip)}</b>（${x.ms}ms）` : escapeHtml(x.error || '失败')}</div>`
+      : '';
+    let html;
+    if (!r.reverse && !r.forward) {
+      html = `<span class="err">✗ ${escapeHtml(r.error || '测试失败')}</span>`;
+    } else {
+      html = (r.ok ? '<span class="ok">✓ Resin 可用</span>' : '<span class="err">✗ 连通失败</span>') + '<br>' +
+        line('反向代理', r.reverse) + line('正向代理', r.forward);
+      if (r.sameIp === true) html += '<div class="ok">✓ 正反代出口一致，粘性正常</div>';
+      else if (r.sameIp === false) html += '<div class="warn">⚠ 正反代出口 IP 不同（功能上都可用）</div>';
+    }
+    $('#resin-test-result').innerHTML = html;
+  } catch (e) {
+    $('#resin-test-result').innerHTML = `<span class="err">✗ ${escapeHtml(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#btn-resin-save').addEventListener('click', async () => {
+  const url = $('#resin-url').value.trim();
+  if (!url) return toast('请先填写 Resin URL', 'error');
+  try {
+    await api('/api/resin', { method: 'PUT', body: { resinUrl: url, resinPlatformName: $('#resin-platform').value.trim() || 'Default' } });
+    toast('已保存并启用（下次任务生效，无需重启）', 'ok');
+    bootstrap();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+$('#btn-resin-clear').addEventListener('click', async () => {
+  if (!confirm('清除控制台保存的 Resin 配置，回退到 .env？')) return;
+  try {
+    await api('/api/resin', { method: 'DELETE' });
+    $('#resin-url').value = '';
+    toast('已清除，回退 .env 配置', 'ok');
+    bootstrap();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
 $('#btn-clear-results').addEventListener('click', async () => {
   const accId = $('#filter-account').value;
   const acc = state.accounts.find(a => a.id === accId);
@@ -356,8 +441,9 @@ async function bootstrap() {
     state.jobs = data.jobs;
     state.results = data.results;
     state.settings = data.settings;
+    try { state.resinDetail = await api('/api/resin'); } catch (e) { /* 忽略 */ }
     hideAuthGate();
-    renderAccounts(); renderFilterOptions(); renderResults(); renderJobs(); renderSettings();
+    renderAccounts(); renderFilterOptions(); renderResults(); renderJobs(); renderSettings(); renderResinCard();
   } catch (e) {
     if (!state.authRequired) toast('加载失败: ' + e.message, 'error');
   }

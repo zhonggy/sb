@@ -9,6 +9,7 @@ const jobRunner = require('./jobRunner');
 const scheduler = require('./scheduler');
 const { bus, maskAccount, toCsv, log, shortTitle, sortByPrice } = require('./utils');
 const { parseCookies } = require('./cookieParser');
+const resin = require('./scraper/resin');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -66,7 +67,6 @@ app.use('/api', sessionAuth);
 app.get('/api/bootstrap', (req, res) => {
   const jobs = store.listJobs().slice(0, 50);
   const artDir = path.join(config.dataDir, 'artifacts');
-  const resinMod = require('./scraper/resin');
   res.json({
     accounts: store.listAccounts().map(maskAccount),
     jobs: jobs.map(j => ({
@@ -79,8 +79,8 @@ app.get('/api/bootstrap', (req, res) => {
     results: store.listResults(null, 200),
     settings: store.getSettings(),
     scheduler: { enabled: !!store.getSettings().scheduleEnabled, cron: store.getSettings().scheduleCron },
-    resin: resinMod.isEnabled()
-      ? { enabled: true, platform: config.resinPlatformName, url: resinMod.maskUrl(config.resinUrl) }
+    resin: resin.isEnabled()
+      ? { enabled: true, platform: resin.getResinConfig().platform, url: resin.maskUrl(resin.getResinConfig().url) }
       : { enabled: false },
     queue: { pending: jobRunner.activeJobs.size },
   });
@@ -213,6 +213,71 @@ app.get('/api/export', (req, res) => {
     })), ['时间', '账号', '优惠', '优惠码', '链接']);
     res.setHeader('Content-Disposition', 'attachment; filename="voxi-results.csv"');
     res.type('text/csv; charset=utf-8').send('\ufeff' + csv);
+  }
+});
+
+// ---------- Resin 代理 ----------
+// 当前生效配置（脱敏）+ 来源；测试/保存/清除
+app.get('/api/resin', (req, res) => {
+  const cfg = resin.getResinConfig();
+  const source = resin.getResinSource();
+  res.json({
+    enabled: !!cfg.url,
+    source, // settings=控制台保存 env=.env ''=未配置
+    platform: cfg.platform,
+    url: cfg.url ? resin.maskUrl(cfg.url) : '',
+    // 控制台保存过的值原样返回供编辑（env 提供的不返回明文）
+    savedUrl: source === 'settings' ? cfg.url : '',
+    savedPlatform: source === 'settings' ? cfg.platform : '',
+  });
+});
+
+app.put('/api/resin', (req, res) => {
+  const url = (req.body && req.body.resinUrl != null ? String(req.body.resinUrl) : '').trim();
+  const platform = (req.body && req.body.resinPlatformName != null ? String(req.body.resinPlatformName) : '').trim();
+  if (url) {
+    // 基本校验
+    let u;
+    try { u = new URL(url); } catch (e) {
+      return res.status(400).json({ error: 'RESIN_URL 格式无效（应形如 http://host:port/token）' });
+    }
+    if (!/^https?:$/.test(u.protocol)) return res.status(400).json({ error: 'RESIN_URL 只支持 http/https' });
+    if (!u.pathname.replace(/^\/+/, '')) return res.status(400).json({ error: 'RESIN_URL 路径需包含 Token（形如 /my-token）' });
+  }
+  store.updateSettings({
+    resinUrl: url,
+    resinPlatformName: platform || 'Default',
+  });
+  log(null, 'info', url ? `Resin 代理配置已保存（${resin.maskUrl(url)}, Platform=${platform || 'Default'}）` : 'Resin 代理配置已清除（回退 .env）');
+  const cfg = resin.getResinConfig();
+  res.json({ ok: true, enabled: !!cfg.url, platform: cfg.platform, url: cfg.url ? resin.maskUrl(cfg.url) : '', source: resin.getResinSource() });
+});
+
+app.delete('/api/resin', (req, res) => {
+  store.updateSettings({ resinUrl: '', resinPlatformName: '' });
+  log(null, 'info', 'Resin 代理配置已清除（回退 .env）');
+  const cfg = resin.getResinConfig();
+  res.json({ ok: true, enabled: !!cfg.url, platform: cfg.platform, url: cfg.url ? resin.maskUrl(cfg.url) : '', source: resin.getResinSource() });
+});
+
+// 连通性测试：可传表单值（未保存也能测），也可用已生效配置
+app.post('/api/resin/test', async (req, res) => {
+  const body = req.body || {};
+  const cfg = resin.getResinConfig();
+  const resinUrl = (body.resinUrl != null && String(body.resinUrl).trim()) ? String(body.resinUrl).trim() : cfg.url;
+  const platform = (body.platformName != null && String(body.platformName).trim()) ? String(body.platformName).trim() : cfg.platform;
+  // 测试身份：指定账号 > 第一个账号 > acc_test
+  let accountId = (body.accountId || '').trim();
+  if (!accountId) {
+    const first = store.listAccounts()[0];
+    accountId = first ? first.id : 'acc_connectivity_test';
+  }
+  try {
+    const r = await resin.testConnectivity({ resinUrl, platform, accountId });
+    log(null, r.ok ? 'info' : 'warn', `Resin 连通性测试[${accountId}]: ${r.ok ? '成功' : '失败'}${r.reverse && r.reverse.ok ? ' 反代IP=' + r.reverse.ip : ''}${r.forward && r.forward.ok ? ' 正代IP=' + r.forward.ip : ''}${r.ok ? '' : ' ' + (r.error || (r.reverse && r.reverse.error) || (r.forward && r.forward.error))}`);
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message || String(e)) });
   }
 });
 

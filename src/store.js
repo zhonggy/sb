@@ -22,6 +22,9 @@ const defaults = () => ({
     scheduleCron: config.scheduleCron,
     maxOffersPerRun: config.maxOffersPerRun,
     stepDelayMs: config.stepDelayMs,
+    // Resin 代理（控制台保存的配置，优先于 .env）
+    resinUrl: '',
+    resinPlatformName: '',
   },
 });
 
