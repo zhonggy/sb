@@ -15,7 +15,7 @@
  *  因此：码 = clipboard 优先；链接 = 按卡片标题在弹窗里定位该卡片内的 re-open 链接。
  */
 const config = require('../config');
-const { sleep, log } = require('../utils');
+const { sleep, log, resultKey } = require('../utils');
 const { acceptCookies, forceRemoveOverlays } = require('./login');
 
 // 每张卡片一个 issuance 按钮
@@ -334,7 +334,7 @@ async function extractVoxi(page, account, job, opts = {}) {
           codeSource: source || null,
           extractedAt: new Date().toISOString(),
         };
-        const key = (code || '') + '|' + (url || '');
+        const key = resultKey(row);
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
           results.push(row);

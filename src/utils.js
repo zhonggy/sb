@@ -67,4 +67,17 @@ function toCsv(rows, headers) {
   return head + '\n' + body;
 }
 
-module.exports = { bus, sleep, uid, log, maskAccount, extractCodeFromText, toCsv };
+/** 结果去重键：同账号 + 同优惠码 + 同 planId 视为同一条
+ *  （awin 链接的 clickref 每次点击都变，不能参与去重） */
+function resultKey(r) {
+  if (!r) return '';
+  const code = (r.code || '').toUpperCase();
+  let plan = '';
+  if (r.url) {
+    const m = String(r.url).match(/planId=(\d+)/i);
+    plan = m ? 'plan' + m[1] : String(r.url).replace(/[?&]clickref=[^&]*/gi, '');
+  }
+  return (r.accountId || '') + '|' + code + '|' + plan;
+}
+
+module.exports = { bus, sleep, uid, log, maskAccount, extractCodeFromText, toCsv, resultKey };

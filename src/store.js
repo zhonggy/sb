@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { resultKey } = require('./utils');
 
 const DB_FILE = path.join(config.dataDir, 'db.json');
 
@@ -116,7 +117,21 @@ function clearJobs() {
 function addResults(rows) {
   for (const r of rows) db.results.push(r);
   if (db.results.length > 2000) db.results.splice(0, db.results.length - 2000);
+  dedupeResults();
   save();
+}
+/** 同账号+同码+同 planId 只保留最新一条（clickref 每次不同，不参与去重） */
+function dedupeResults() {
+  const seen = new Set();
+  const sorted = db.results.slice().sort((a, b) => (b.extractedAt || '').localeCompare(a.extractedAt || ''));
+  const out = [];
+  for (const r of sorted) {
+    const k = resultKey(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+  db.results = out;
 }
 const listResults = (accountId, limit = 500) => {
   let rows = db.results.slice().sort((a, b) => (b.extractedAt || '').localeCompare(a.extractedAt || ''));
