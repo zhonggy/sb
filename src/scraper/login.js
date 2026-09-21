@@ -58,9 +58,13 @@ async function acceptCookies(page, job) {
  *  （不能用 profile-img 判断——未登录页也存在该元素）*/
 async function isLoggedInOnSite(page) {
   try {
+    // 先等导航渲染出来（未登录/已登录都有导航），避免页面未加载完时误判
+    await page.waitForSelector('[data-testid^="nav-"]', { timeout: 8000 }).catch(() => {});
     return await page.evaluate(() => {
       // accounts 子域页面没有主导航，不能作为登录态判断依据
       if (/accounts\.studentbeans\.com/.test(location.hostname)) return false;
+      // 导航完全没渲染出来时无法确认，按未登录处理
+      if (!document.querySelector('[data-testid^="nav-"]')) return false;
       const links = [...document.querySelectorAll('[data-testid="nav-login"]')]
         .filter(el => el.offsetWidth || el.offsetHeight);
       return links.length === 0;
@@ -73,26 +77,49 @@ async function isLoggedInOnSite(page) {
 /** 自动点击 Turnstile 复选框（技术思路来自 Cfpass CDP Extension）
  *  Playwright 本身就是 CDP 驱动，frameLocator 可穿透跨域 iframe 和 Shadow DOM，
  *  点击走浏览器真实输入事件，与手动点复选框等效。
- *  先等 5 秒让复选框 iframe 和 Shadow DOM 加载好。 */
-async function clickTurnstileCheckbox(page, job, waitMs = 5000) {
+ *
+ *  时序说明（用户截图实证）：CF 先跑无感「Verifying...」，失败后才升级显示复选框，
+ *  可能远超 5 秒。因此：先等 waitMs，再轮询最多 pollMs，复选框一出现就点。
+ *
+ *  返回: { found: boolean, clicked: boolean } */
+async function clickTurnstileCheckbox(page, job, waitMs = 5000, pollMs = 20000) {
+  const out = { found: false, clicked: false };
   try {
     await sleep(waitMs);
+    // 等 CF iframe 出现
+    let hasFrame = false;
+    for (let t = 0; t < 10 && !hasFrame; t++) {
+      hasFrame = await page.locator('iframe[src*="challenges.cloudflare.com"]').count().catch(() => 0) > 0;
+      if (!hasFrame) await sleep(1000);
+    }
+    if (!hasFrame) {
+      log(job, 'info', '未发现 Turnstile iframe（可能无感模式已自动通过，或无需验证）');
+      return out;
+    }
     const frame = page.frameLocator('iframe[src*="challenges.cloudflare.com"]');
     const checkbox = frame.locator('input[type="checkbox"]').first();
-    const count = await checkbox.count().catch(() => 0);
-    if (!count) {
-      log(job, 'info', '未发现 Turnstile 复选框（可能无感模式已自动通过，或无需验证）');
-      return false;
+    // 轮询等复选框渲染（无感验证失败后升级交互模式需要时间）
+    const deadline = Date.now() + pollMs;
+    let seen = false;
+    while (Date.now() < deadline) {
+      seen = await checkbox.count().catch(() => 0) > 0;
+      if (seen) break;
+      await sleep(1000);
     }
+    if (!seen) {
+      log(job, 'info', 'Turnstile 保持无感验证中，未出现复选框');
+      return out;
+    }
+    out.found = true;
     log(job, 'info', '发现 Turnstile 复选框，自动点击…');
-    await checkbox.click({ timeout: 10000 }).catch(e => {
+    await checkbox.click({ timeout: 10000 }).then(() => { out.clicked = true; }).catch(e => {
       log(job, 'warn', '复选框点击失败: ' + e.message.split('\n')[0]);
     });
     await sleep(2000); // 等验证跑完
-    return true;
+    return out;
   } catch (e) {
     log(job, 'warn', 'Turnstile 点击流程异常: ' + e.message.split('\n')[0]);
-    return false;
+    return out;
   }
 }
 
@@ -279,17 +306,28 @@ async function doLogin(page, account, job) {
     return { ok: false, status: 'failed', message: '未确认登录状态（nav 未变化）' };
   }
 
-  // 功能校验：直接访问需要登录的页面，确认不会再被弹回登录页
-  // （拦截 OAuth 回调 interstitial 的误判，以及 cookie 未真正建立的情况）
+  // 功能校验：确认会话真的建立
+  // 注意：VOXI 优惠页是【公开页】，未登录也能打开——不跳登录页 ≠ 已登录！
+  // 判据：① 被弹回登录页 ② 页面导航栏仍显示 Login 入口（isLoggedInOnSite）
   log(job, 'info', '验证会话有效性…');
   await page.goto(config.voxiPageUrl, { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs }).catch(() => {});
   await sleep(2500);
-  if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
+  const cookiesDiag = async () => {
     const cookies = await page.context().cookies().catch(() => []);
-    log(job, 'warn', '会话验证失败：访问优惠页被弹回登录页');
     log(job, 'info', '诊断 Cookie: ' + cookies.map(c => c.name).slice(0, 20).join(', '));
+  };
+  if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
+    log(job, 'warn', '会话验证失败：访问优惠页被弹回登录页');
+    await cookiesDiag();
     saveSessionFailShot(page, job);
     return { ok: false, status: 'failed', message: '登录后访问优惠页仍被要求登录（会话未建立，可能是 OAuth 回调未完成或密码错误）' };
+  }
+  const navOk = await isLoggedInOnSite(page);
+  if (!navOk) {
+    log(job, 'warn', '会话验证失败：优惠页导航仍显示登录入口（未登录）');
+    await cookiesDiag();
+    saveSessionFailShot(page, job);
+    return { ok: false, status: 'failed', message: '登录未成功：优惠页仍显示登录入口（账号密码可能错误，或 Turnstile 未通过）' };
   }
   log(job, 'info', '会话有效');
   return { ok: true, status: 'logged_in', message: '' };
@@ -309,4 +347,4 @@ async function saveSessionFailShot(page, job) {
   } catch (e) { /* noop */ }
 }
 
-module.exports = { doLogin, isLoggedInOnSite, acceptCookies, forceRemoveOverlays };
+module.exports = { doLogin, isLoggedInOnSite, acceptCookies, forceRemoveOverlays, clickTurnstileCheckbox };

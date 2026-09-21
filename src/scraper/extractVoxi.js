@@ -16,7 +16,7 @@
  */
 const config = require('../config');
 const { sleep, log, resultKey } = require('../utils');
-const { acceptCookies, forceRemoveOverlays } = require('./login');
+const { acceptCookies, forceRemoveOverlays, clickTurnstileCheckbox } = require('./login');
 
 // 每张卡片一个 issuance 按钮
 const BTN_SEL = 'div[data-testid="offer-issuance-button"] button, div[data-testid="offer-issuance-button"] a';
@@ -249,6 +249,32 @@ async function extractVoxi(page, account, job, opts = {}) {
         ).catch(() => {});
         popup = livePopup;
         popupIsNew = false;
+      }
+
+      // 仍无弹窗：① 同标签页被弹回登录页 = 会话失效（登录实际未成功）
+      //           ② 被内联 Turnstile 挑战拦截 → 自动点复选框，通过后再查一次弹窗
+      let sessionLost = false;
+      if (!popup) {
+        if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
+          sessionLost = true;
+        } else {
+          log(job, 'warn', '未检测到新标签页，检查是否被内联人机验证拦截…');
+          const ts = await clickTurnstileCheckbox(page, job, 3000, 12000);
+          if (ts.found) {
+            await sleep(4000); // 等验证通过后站点弹出新标签页
+            const pages2 = page.context().pages().filter(p => p !== page && !p.isClosed());
+            const fresh = pages2.find(p => p !== livePopup);
+            if (fresh) { popup = fresh; popupIsNew = true; }
+            if (!popup && /accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) sessionLost = true;
+          }
+        }
+      }
+      if (sessionLost) {
+        const bodyText = await page.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
+        artifacts.push(await saveArtifact(job, `offer-${n + 1}.txt`, bodyText));
+        artifacts.push(await saveArtifact(job, `offer-${n + 1}.png`, await page.screenshot().catch(() => null), 'image/png'));
+        log(job, 'error', '点击 Get code 后被重定向到登录页——登录实际未成功，终止本轮');
+        return { results, artifacts, error: '会话失效：点击 Get code 后被重定向到登录页（登录未真正成功）' };
       }
 
       let code = null;
