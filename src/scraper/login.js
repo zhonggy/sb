@@ -349,10 +349,17 @@ async function doLogin(page, account, job) {
   const cookiesDiag = async () => {
     const cookies = await page.context().cookies().catch(() => []);
     const names = cookies.map(c => c.name);
-    const sessionLike = names.filter(n => /sb_|session|auth|token|jwt|login|remember/i.test(n));
+    // 真正的登录会话 cookie：sb_ 开头或含 session/auth 的
+    // 排除 OAuth 流程产物和 WAF token（auth_path / accounts-session-referrer /
+    // sb_domain_user_info / aws-waf-token 等，未登录时也会出现，不代表已登录）
+    const NOT_SESSION = /^(auth_path|accounts-session-referrer|sb_domain_user_info|aws-waf-token|client_id|redirect_uri|response_type|user_return_to|consumer_group)$/i;
+    const sessionLike = names.filter(n =>
+      /sb_|session|auth|token|jwt|login|remember/i.test(n) && !NOT_SESSION.test(n));
     log(job, 'info', `诊断 Cookie(${names.length}个): ${names.slice(0, 40).join(', ')}${names.length > 40 ? ' …' : ''}`);
     log(job, sessionLike.length ? 'info' : 'warn',
-      sessionLike.length ? `会话类 Cookie: ${sessionLike.join(', ')}` : '未发现任何会话类 Cookie（sb_/session/auth/token）——登录未认证');
+      sessionLike.length
+        ? `✅ 发现登录会话 Cookie: ${sessionLike.join(', ')}`
+        : '❌ 无登录会话 Cookie（sb_/session/auth 类，已排除 OAuth 流程产物）——登录从未认证');
   };
   if (/accounts\.studentbeans\.com|\/accounts\/authorisation\//.test(page.url())) {
     log(job, 'warn', '会话验证失败：访问优惠页被弹回登录页');
