@@ -201,7 +201,16 @@ Dockerfile 里用 `npm ci`（不用 `npm install` 回退），lock 不同步时�
 | `CLOAKBROWSER_GEOIP` | `false` | 按代理 IP 自动设置时区/语言。**无代理时不要开**（会按服务器 IP 设置） |
 | `HEADLESS` | `true` | 激进站点下官方建议 `false`（容器内靠 Xvfb 渲染，功能不受影响） |
 
-> 注意：CloakBrowser 解决的是**浏览器指纹**层面，不改变 IP 信誉——数据中心 IP 仍可能被拦。配合住宅代理（`PROXY_URL`）效果最佳；Cookie 导入永远是最稳的保底。
+> 注意：CloakBrowser 解决的是**浏览器指纹**层面，不改变 IP 信誉——数据中心 IP 仍可能被拦。配合住宅代理（`PROXY_URL`）或 Resin 代理池效果最佳；Cookie 导入永远是最稳的保底。
+
+### 免费 key 的限制与自动回退
+
+免费 license key **只支持 1 个并发会话**，且 license 校验需从服务器直连 cloakbrowser.dev（国内网络可能不稳定）。针对这两种失败工具已做两层自动处理：
+
+1. **启动级回退**：启动/预热导航时遇到 license 错误 → 自动切 Playwright 引擎
+2. **任务级回退**：运行中任何时刻遇到 `CloakBrowser Pro` 类错误（license 不可达 / 会话数超限）→ 自动用 Playwright 引擎**重试一次**，任务不中断
+
+如果频繁撞会话限制：检查容器里是否有残留的 chrome 进程（`docker exec voxi-extractor pkill -f chrome` 清理），或升级 CloakBrowser 套餐。另外 Resin 代理已解决 IP 信誉问题后，**Playwright 引擎本身也可能直接过 Turnstile**，可以用 `BROWSER_ENGINE=playwright` 对比测试。
 
 ## 🌐 Resin 粘性代理池（可选）
 

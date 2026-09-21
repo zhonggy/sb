@@ -70,14 +70,29 @@ async function processNext() {
   }
 }
 
+/** 任务编排：CloakBrowser 因 license/会话限制失败时，自动回退 Playwright 引擎重试一次 */
 async function runJob(job) {
+  await runJobOnce(job, null);
+  const j = store.getDb().jobs.find(x => x.id === job.id);
+  if (!j || j.status !== 'failed' || job.retried) return;
+  const engine = (config.browserEngine || '').toLowerCase();
+  const cloakErr = /CloakBrowser Pro|license|session limit|couldn't verify/i.test(j.error || '');
+  if (engine === 'cloak' && cloakErr) {
+    job.retried = true;
+    log(job, 'warn', `CloakBrowser 失败（${(j.error || '').split('\n')[0]}）——免费 key 仅支持 1 个并发会话且 license 服务器从本机直连不稳定；回退 Playwright 引擎重试一次`);
+    store.updateJob(job.id, { status: 'queued', error: null, finishedAt: null, logs: j.logs });
+    await runJobOnce(job, 'playwright');
+  }
+}
+
+async function runJobOnce(job, engineOverride) {
   const account = store.getAccount(job.accountId);
   if (!account) {
     store.updateJob(job.id, { status: 'failed', error: '账号已被删除', finishedAt: new Date().toISOString() });
     return;
   }
   store.updateJob(job.id, { status: 'running' });
-  log(job, 'info', `开始任务（账号: ${account.email}）`);
+  log(job, 'info', `开始任务（账号: ${account.email}）${engineOverride ? '（引擎: ' + engineOverride + '）' : ''}`);
 
   const settings = store.getSettings();
 
@@ -87,7 +102,7 @@ async function runJob(job) {
   let finalError = null;
 
   try {
-    context = await launchContext(job.accountId);
+    context = await launchContext(job.accountId, engineOverride);
     const page = context.pages()[0] || await context.newPage();
 
     // Cookie 导入优先（跳过用户名密码登录）

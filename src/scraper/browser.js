@@ -116,6 +116,17 @@ async function launchCloakContext(accountId) {
   if (config.cloakLicenseKey) opts.licenseKey = config.cloakLicenseKey;
   const context = await launchPersistentContext(opts);
   await afterLaunch(context);
+  // 预热导航：CloakBrowser 的 license 校验是惰性的（启动时不查，首次导航才触发），
+  // 这里做一次真实导航把 license/会话限制类错误暴露出来——失败则关掉并抛出，
+  // 让上层 launchContext 的回退逻辑切到 Playwright 引擎。
+  try {
+    const warm = context.pages()[0] || await context.newPage();
+    await warm.goto(config.siteUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await warm.close().catch(() => {});
+  } catch (e) {
+    await context.close().catch(() => {});
+    throw e;
+  }
   return context;
 }
 
@@ -130,11 +141,18 @@ async function afterLaunch(context) {
   return context;
 }
 
-async function launchContext(accountId) {
+/**
+ * 启动浏览器上下文
+ * @param {string} accountId 账号 ID（同时作为 Resin Account 身份）
+ * @param {string} [engineOverride] 引擎覆盖：'playwright' | 'cloak'（任务级回退重试时用）
+ */
+async function launchContext(accountId, engineOverride) {
+  const engine = (engineOverride || config.browserEngine || '').toLowerCase();
   if (resin.isEnabled()) {
-    log(null, 'info', `Resin 粘性代理: Platform=${config.resinPlatformName} Account=${accountId}（${resin.maskUrl(config.resinUrl)}）`);
+    const cfg = resin.getResinConfig();
+    log(null, 'info', `Resin 粘性代理: Platform=${cfg.platform} Account=${accountId}（${resin.maskUrl(cfg.url)}）`);
   }
-  if (config.browserEngine === 'cloak') {
+  if (engine === 'cloak') {
     try {
       log(null, 'info', `浏览器引擎: CloakBrowser（humanize=${config.cloakHumanize}${config.cloakLicenseKey ? '，已配置 license key' : '，无 key 使用免费版'}）`);
       return await launchCloakContext(accountId);
