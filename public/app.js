@@ -59,6 +59,17 @@ async function doLogin() {
 }
 
 /* ---------- 渲染 ---------- */
+/** 下次提取日期行：到期显示琥珀色「已到期」，未到期显示蓝色日期 */
+function nextExtractLine(iso) {
+  const d = new Date(iso);
+  const p = n => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  const overdue = d.getTime() < Date.now();
+  const color = overdue ? 'var(--amber)' : 'var(--accent-2)';
+  const tag = overdue ? '（已到期，可再跑）' : '';
+  return `<div class="meta" style="color:${color}">🗓 下次提取: <b>${date}</b>${tag}</div>`;
+}
+
 function renderAccounts() {
   const box = $('#account-list');
   box.innerHTML = '';
@@ -75,6 +86,7 @@ function renderAccounts() {
         ${statusBadge(a.lastStatus)}
       </div>
       <div class="meta">${a.email} · ${a.hasCookies ? '已导入Cookie(' + (a.cookieCount || 0) + '条)' : (a.passwordSet ? '密码登录' : '无凭据')} · 最近: ${fmtTime(a.lastRunAt)}</div>
+      ${a.nextExtractAt ? nextExtractLine(a.nextExtractAt) : ''}
       ${a.lastError ? `<div class="meta" style="color:var(--red)">${a.lastError}</div>` : ''}
       <div class="ops">
         <button class="btn small primary" data-act="run">▶ 运行</button>

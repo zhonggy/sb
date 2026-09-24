@@ -143,6 +143,10 @@ async function runJobOnce(job, engineOverride) {
       store.addResults(results);
       log(job, 'ok', `本轮共提取 ${results.length} 条优惠码`);
       finalStatus = 'success';
+      // 成功提取到码和链接 → 标记下次提取日期（默认 30 天后）
+      const nextExtractAt = new Date(Date.now() + config.nextExtractDays * 864e5).toISOString();
+      store.updateAccount(account.id, { nextExtractAt });
+      log(job, 'info', `🗓 已标记下次提取日期: ${nextExtractAt.slice(0, 10)}（${config.nextExtractDays} 天后）`);
     } else {
       finalError = error || '未提取到优惠码';
       finalStatus = error ? 'failed' : 'success'; // 页面正常但无码也算成功

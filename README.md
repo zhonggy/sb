@@ -16,6 +16,7 @@
 | 🔗 链接捕获 | "open site" 新标签页的最终跳转链接（指向 voxi.co.uk） |
 | 🖥️ 实时日志 | SSE 推送，浏览器无需刷新即可看到每一步 |
 | 💾 会话复用 | 每账号独立浏览器 profile，登录成功后 Cookie 持久化，下次免登录 |
+| 🗓 下次提取提醒 | 成功提取到优惠码+链接后，账号卡片自动标记 30 天后的下次提取日期（到期变琥珀色，`NEXT_EXTRACT_DAYS` 可调） |
 | 🍪 Cookie 导入 | 手动登录一次拿 Cookie 导入，彻底绕过 Turnstile 人机验证（支持 DevTools 请求头/JSON/cookies.txt 自动识别） |
 | ⏰ 定时任务 | Cron 表达式自动跑全部账号 |
 | 📤 导出 | 结果导出 CSV（Excel 兼容）/ JSON |

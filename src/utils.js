@@ -34,6 +34,7 @@ function maskAccount(a) {
     hasCookies: Array.isArray(a.cookies) && a.cookies.length > 0,
     cookieCount: Array.isArray(a.cookies) ? a.cookies.length : 0,
     createdAt: a.createdAt, lastRunAt: a.lastRunAt, lastStatus: a.lastStatus, lastError: a.lastError,
+    nextExtractAt: a.nextExtractAt || null,
   };
 }
 

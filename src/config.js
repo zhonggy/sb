@@ -47,6 +47,8 @@ const config = {
   clickTimeoutMs: parseInt(env('CLICK_TIMEOUT_MS', '15000'), 10),
   stepDelayMs: parseInt(env('STEP_DELAY_MS', '1500'), 10),
   maxOffersPerRun: parseInt(env('MAX_OFFERS_PER_RUN', '20'), 10),
+  // 成功提取到优惠码后，标记多少天后可再次提取（账号卡片显示）
+  nextExtractDays: parseInt(env('NEXT_EXTRACT_DAYS', '30'), 10),
 
   // 定时任务
   scheduleEnabled: env('SCHEDULE_ENABLED', 'false') === 'true',
