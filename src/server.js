@@ -194,24 +194,39 @@ app.delete('/api/jobs', (req, res) => {
   res.json({ ok: true, removed });
 });
 
+/** 导出文件名：<账号邮箱>_<日期>.<ext>
+ *  单账号筛选 → 该账号邮箱；全部导出且结果只属于一个账号 → 该邮箱；
+ *  多账号混合 → voxi-results_<日期> */
+function buildExportName(rows, accountId, ext) {
+  const ids = accountId ? [String(accountId)] : [...new Set(rows.map(r => r.accountId).filter(Boolean))];
+  const emails = [...new Set(ids.map(id => {
+    const a = store.getAccount(id);
+    return a && a.email ? a.email : '';
+  }).filter(Boolean))];
+  const safe = s => String(s).replace(/[^a-zA-Z0-9._@+-]+/g, '_');
+  const day = new Date().toISOString().slice(0, 10);
+  const base = emails.length === 1 ? safe(emails[0]) : 'voxi-results';
+  return `${base}_${day}.${ext}`;
+}
+
 app.get('/api/export', (req, res) => {
   const rows = store.listResults(req.query.accountId, 5000);
   const fmt = (req.query.format || 'csv').toLowerCase();
   if (fmt === 'json') {
-    res.setHeader('Content-Disposition', 'attachment; filename="voxi-results.json"');
+    res.setHeader('Content-Disposition', `attachment; filename="${buildExportName(rows, req.query.accountId, 'json')}"`);
     res.json(rows);
   } else if (fmt === 'txt') {
     // 每行: 优惠----优惠码----链接（优惠只保留到 a month，按价格升序 10→12→15→20）
     const txt = sortByPrice(rows)
       .map(r => `${shortTitle(r.title)}----${r.code || ''}----${r.url || ''}`)
       .join('\n');
-    res.setHeader('Content-Disposition', 'attachment; filename="voxi-results.txt"');
+    res.setHeader('Content-Disposition', `attachment; filename="${buildExportName(rows, req.query.accountId, 'txt')}"`);
     res.type('text/plain; charset=utf-8').send(txt);
   } else {
     const csv = toCsv(rows.map(r => ({
       时间: r.extractedAt, 账号: r.accountLabel, 优惠: r.title, 优惠码: r.code || '', 链接: r.url || '',
     })), ['时间', '账号', '优惠', '优惠码', '链接']);
-    res.setHeader('Content-Disposition', 'attachment; filename="voxi-results.csv"');
+    res.setHeader('Content-Disposition', `attachment; filename="${buildExportName(rows, req.query.accountId, 'csv')}"`);
     res.type('text/csv; charset=utf-8').send('\ufeff' + csv);
   }
 });

@@ -113,6 +113,20 @@ function renderFilterOptions() {
   sel.innerHTML = '<option value="">全部账号</option>' +
     state.accounts.map(a => `<option value="${a.id}">${a.label || a.email}</option>`).join('');
   sel.value = state.accounts.some(a => a.id === cur) ? cur : '';
+  updateExportLinks();
+}
+
+/** 导出链接跟随当前筛选（文件名会带对应账号邮箱+日期） */
+function updateExportLinks() {
+  const accId = $('#filter-account').value;
+  document.querySelectorAll('a[download]').forEach(a => {
+    const m = (a.getAttribute('href') || '').match(/format=(\w+)/);
+    if (!m) return;
+    const params = new URLSearchParams();
+    if (accId) params.set('accountId', accId);
+    params.set('format', m[1]);
+    a.href = '/api/export?' + params.toString();
+  });
 }
 
 function renderResults() {
@@ -309,7 +323,7 @@ $('#btn-save-settings').addEventListener('click', async () => {
   } catch (e) { toast(e.message, 'error'); }
 });
 
-$('#filter-account').addEventListener('change', renderResults);
+$('#filter-account').addEventListener('change', () => { renderResults(); updateExportLinks(); });
 $('#btn-refresh-results').addEventListener('click', () => api('/api/results').then(d => { state.results = d.results; renderResults(); }));
 
 /* ---------- Resin 代理卡片 ---------- */
