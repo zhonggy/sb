@@ -108,15 +108,24 @@ async function runJobOnce(job, engineOverride) {
     // Cookie 导入优先（跳过用户名密码登录）
     let loginRes;
     if (account.cookies && account.cookies.length) {
-      log(job, 'info', '使用导入的 Cookie 恢复会话…');
+      log(job, 'info', `使用导入的 Cookie 恢复会话…（${account.cookies.length} 条: ${account.cookies.map(c => c.name).slice(0, 15).join(', ')}）`);
       await context.addCookies(account.cookies);
       await page.goto(config.voxiPageUrl, { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs }).catch(() => {});
       await sleep(2000);
-      if (await isLoggedInOnSite(page)) {
+      let cookieOk = await isLoggedInOnSite(page);
+      if (!cookieOk) {
+        // React 水化慢可能误判，再等 2 秒复查一次
+        await sleep(2000);
+        cookieOk = await isLoggedInOnSite(page);
+      }
+      if (cookieOk) {
         loginRes = { ok: true, status: 'already_logged_in' };
         log(job, 'info', 'Cookie 会话有效');
       } else {
-        log(job, 'warn', 'Cookie 已失效，回退到账号密码登录');
+        // 诊断：上下文里实际生效的 studentbeans cookie + 当前 URL
+        const ctxCookies = await context.cookies('https://www.studentbeans.com').catch(() => []);
+        log(job, 'warn', `Cookie 验证未通过（当前URL: ${page.url()}；上下文生效 cookie: ${ctxCookies.map(c => c.name).slice(0, 20).join(', ') || '无'}）`);
+        log(job, 'warn', '提示：document.cookie 复制不到 httpOnly 的会话 cookie——若浏览器明明已登录，请改用「Copy as cURL」方式重新导入');
         loginRes = account.password ? await doLogin(page, account, job) : { ok: false, status: 'failed', message: 'Cookie 失效且未设置密码' };
       }
     } else {

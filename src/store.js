@@ -25,6 +25,8 @@ const defaults = () => ({
     // Resin 代理（控制台保存的配置，优先于 .env）
     resinUrl: '',
     resinPlatformName: '',
+    // 启用开关：null=跟随配置（有URL即启用）| true=强制启用 | false=强制停用
+    resinEnabled: null,
   },
 });
 

@@ -316,13 +316,20 @@ $('#btn-refresh-results').addEventListener('click', () => api('/api/results').th
 function renderResinCard() {
   const d = state.resinDetail || {};
   const badge = $('#resin-card-status');
-  if (d.enabled) {
-    badge.textContent = d.source === 'settings' ? '已启用(控制台)' : '已启用(.env)';
-    badge.className = 'badge ok';
-  } else {
+  if (!d.configured) {
     badge.textContent = '未配置';
     badge.className = 'badge muted';
+  } else if (d.manuallyDisabled) {
+    badge.textContent = '已停用';
+    badge.className = 'badge failed';
+  } else {
+    badge.textContent = d.source === 'settings' ? '已启用(控制台)' : '已启用(.env)';
+    badge.className = 'badge ok';
   }
+  // 启用勾选：生效才勾上；未配置时禁用勾选
+  const enBox = $('#resin-enabled');
+  enBox.checked = !!d.enabled;
+  enBox.disabled = !d.configured;
   // 测试身份下拉
   const sel = $('#resin-test-account');
   const cur = sel.value;
@@ -385,6 +392,19 @@ $('#btn-resin-save').addEventListener('click', async () => {
     toast('已保存并启用（下次任务生效，无需重启）', 'ok');
     bootstrap();
   } catch (e) { toast(e.message, 'error'); }
+});
+
+// 启用勾选：只改开关，不动 URL；停用后任务直连（测试用）
+$('#resin-enabled').addEventListener('change', async () => {
+  const enabled = $('#resin-enabled').checked;
+  try {
+    await api('/api/resin/toggle', { method: 'POST', body: { enabled } });
+    toast(enabled ? 'Resin 代理已启用' : 'Resin 代理已停用——任务将直连（测试用）', 'ok');
+    bootstrap();
+  } catch (e) {
+    toast(e.message, 'error');
+    bootstrap();
+  }
 });
 
 $('#btn-resin-clear').addEventListener('click', async () => {

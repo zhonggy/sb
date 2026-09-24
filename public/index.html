@@ -113,7 +113,13 @@
       <div class="card">
         <div class="card-head">
           <h2>🌐 Resin 粘性代理</h2>
-          <span id="resin-card-status" class="badge muted">未配置</span>
+          <div class="row">
+            <label class="row" style="gap:6px;cursor:pointer" title="关闭后任务不走代理（测试直连用）">
+              <input type="checkbox" id="resin-enabled" style="width:auto">
+              <span>启用</span>
+            </label>
+            <span id="resin-card-status" class="badge muted">未配置</span>
+          </div>
         </div>
         <div class="stack">
           <label class="stack">

@@ -47,9 +47,27 @@ function getResinSource() {
   return '';
 }
 
-/** 是否启用了 Resin */
+/** 是否启用了 Resin（控制台开关优先：手动停用后即使配了 URL 也不走代理） */
 function isEnabled() {
+  let settings = {};
+  try { settings = store().getSettings() || {}; } catch (e) { /* store 未就绪时用 env */ }
+  if (settings.resinEnabled === false) return false;
   return !!getResinConfig().url;
+}
+
+/** 控制台开关状态：{ effective, manuallyEnabled, manuallyDisabled, configured } */
+function getEnabledState() {
+  let settings = {};
+  try { settings = store().getSettings() || {}; } catch (e) { /* noop */ }
+  const configured = !!getResinConfig().url;
+  const manuallyDisabled = settings.resinEnabled === false;
+  const manuallyEnabled = settings.resinEnabled === true;
+  return {
+    effective: !manuallyDisabled && configured,
+    manuallyEnabled,
+    manuallyDisabled,
+    configured,
+  };
 }
 
 /** 解析 resin_url：http://127.0.0.1:2260/my-token → { origin, token, base } */
@@ -228,6 +246,7 @@ module.exports = {
   getResinConfig,
   getResinSource,
   isEnabled,
+  getEnabledState,
   parseResinUrl,
   forwardProxy,
   forwardProxyUrl,

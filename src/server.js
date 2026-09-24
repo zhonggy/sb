@@ -221,8 +221,12 @@ app.get('/api/export', (req, res) => {
 app.get('/api/resin', (req, res) => {
   const cfg = resin.getResinConfig();
   const source = resin.getResinSource();
+  const en = resin.getEnabledState();
   res.json({
-    enabled: !!cfg.url,
+    enabled: en.effective,
+    manuallyDisabled: en.manuallyDisabled,
+    manuallyEnabled: en.manuallyEnabled,
+    configured: en.configured,
     source, // settings=控制台保存 env=.env ''=未配置
     platform: cfg.platform,
     url: cfg.url ? resin.maskUrl(cfg.url) : '',
@@ -230,6 +234,15 @@ app.get('/api/resin', (req, res) => {
     savedUrl: source === 'settings' ? cfg.url : '',
     savedPlatform: source === 'settings' ? cfg.platform : '',
   });
+});
+
+/** 启用开关（卡片勾选框，只改开关不动 URL） */
+app.post('/api/resin/toggle', (req, res) => {
+  const enabled = !!(req.body && req.body.enabled);
+  store.updateSettings({ resinEnabled: enabled });
+  const en = resin.getEnabledState();
+  log(null, 'info', enabled ? 'Resin 代理已手动启用' : 'Resin 代理已手动停用（任务将不走代理）');
+  res.json({ ok: true, enabled: en.effective, manuallyDisabled: en.manuallyDisabled, configured: en.configured });
 });
 
 app.put('/api/resin', (req, res) => {
@@ -247,6 +260,7 @@ app.put('/api/resin', (req, res) => {
   store.updateSettings({
     resinUrl: url,
     resinPlatformName: platform || 'Default',
+    resinEnabled: url ? true : null, // 保存新配置时自动启用；清空时回到跟随状态
   });
   log(null, 'info', url ? `Resin 代理配置已保存（${resin.maskUrl(url)}, Platform=${platform || 'Default'}）` : 'Resin 代理配置已清除（回退 .env）');
   const cfg = resin.getResinConfig();
@@ -254,7 +268,7 @@ app.put('/api/resin', (req, res) => {
 });
 
 app.delete('/api/resin', (req, res) => {
-  store.updateSettings({ resinUrl: '', resinPlatformName: '' });
+  store.updateSettings({ resinUrl: '', resinPlatformName: '', resinEnabled: null });
   log(null, 'info', 'Resin 代理配置已清除（回退 .env）');
   const cfg = resin.getResinConfig();
   res.json({ ok: true, enabled: !!cfg.url, platform: cfg.platform, url: cfg.url ? resin.maskUrl(cfg.url) : '', source: resin.getResinSource() });

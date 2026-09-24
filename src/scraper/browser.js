@@ -238,6 +238,8 @@ async function launchContext(accountId, engineOverride) {
   if (resin.isEnabled()) {
     const cfg = resin.getResinConfig();
     log(null, 'info', `Resin 粘性代理: Platform=${cfg.platform} Account=${accountId}（${resin.maskUrl(cfg.url)}）`);
+  } else if (resin.getResinConfig().url) {
+    log(null, 'info', 'Resin 代理已停用（本次任务直连，不走代理）');
   }
   if (engine === 'cloak') {
     try {
