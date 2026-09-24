@@ -355,7 +355,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: '服务器内部错误' });
 });
 
-const server = app.listen(config.port, () => {
+const server = app.listen(config.port, config.host, () => {
   console.log(`\n  VOXI Student Beans 优惠码提取器`);
   console.log(`  控制台: http://localhost:${config.port}`);
   console.log(`  访问密码: ${config.adminPassword ? '已启用' : '未设置（任何人可访问）'}\n`);

@@ -3,11 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "description": "Voxi Student Beans 优惠码自动提取工具（Web 控制台 + Playwright 自动化）",
-  "main": "src/server.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node src/server.js",
     "probe": "node scripts/probe.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "electron": "electron .",
+    "predist": "node scripts/prebuild-browsers.js",
+    "dist": "npm run predist && electron-builder --win portable",
+    "dist-full": "npm run predist && electron-builder --win"
   },
   "engines": {
     "node": ">=20"
@@ -17,5 +21,36 @@
     "express": "^4.21.2",
     "node-cron": "^3.0.3",
     "playwright": "1.63.0"
+  },
+  "devDependencies": {
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.voxi.extractor",
+    "productName": "VOXI优惠码提取器",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "public/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "!node_modules/**/{README.md,readme.md,test,tests,docs,example,examples,.github}",
+      "!node_modules/.bin/**"
+    ],
+    "extraResources": [
+      { "from": "build/playwright-browsers", "to": "playwright-browsers" }
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "portable": {
+      "artifactName": "VOXI优惠码提取器-portable.exe"
+    },
+    "asar": true,
+    "npmRebuild": false
   }
 }

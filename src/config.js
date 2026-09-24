@@ -7,6 +7,7 @@ const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? p
 
 const config = {
   port: parseInt(env('PORT', '3920'), 10),
+  host: env('HOST', '0.0.0.0'),   // 桌面端由 Electron 设为 127.0.0.1
   dataDir: path.resolve(env('DATA_DIR', path.join(__dirname, '..', 'data'))),
 
   // Web 控制台访问密码：为空则不加锁（建议设置）
