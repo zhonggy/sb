@@ -231,10 +231,14 @@ async function launchCloakContext(accountId) {
   // 预热导航：CloakBrowser 的 license 校验是惰性的（启动时不查，首次导航才触发），
   // 这里做一次真实导航把 license/会话限制类错误暴露出来——失败则关掉并抛出，
   // 让上层 launchContext 的回退逻辑切到 Playwright 引擎。
+  // 注意：预热后【不要 close 页面】——实测发现关闭最后一个标签时补丁浏览器
+  // 有概率整体退出（race），导致调用方 newPage 报 Failed to open a new tab。
+  // 改为：给该页面单独注册 init script（保证捕获钩子生效），导航后复位到 about:blank。
   try {
     const warm = context.pages()[0] || await context.newPage();
+    await warm.addInitScript(initScript);
     await warm.goto(config.siteUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await warm.close().catch(() => {});
+    await warm.goto('about:blank').catch(() => {});
   } catch (e) {
     await context.close().catch(() => {});
     throw e;
