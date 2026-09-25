@@ -56,10 +56,17 @@ function setupCloakPath() {
   process.env.HOST = '127.0.0.1';                 // 只监听本机，安全性
   if (!process.env.HEADLESS) process.env.HEADLESS = 'false'; // 桌面端默认有头
   if (!process.env.ADMIN_PASSWORD) process.env.ADMIN_PASSWORD = ''; // 本机单机使用，免密
-  if (!process.env.BROWSER_ENGINE) process.env.BROWSER_ENGINE = 'cloak'; // 桌面版默认 CloakBrowser
+  if (!process.env.BROWSER_ENGINE) process.env.BROWSER_ENGINE = 'camoufox'; // 桌面版默认 Camoufox（disable_coop 过 Turnstile）
 
   const browsersPath = setupBrowsersPath();
   const cloakPath = setupCloakPath();
+  // Camoufox 二进制路径（resources/camoufox/extracted/camoufox.exe）
+  const camoufoxExe = app.isPackaged
+    ? path.join(process.resourcesPath, 'camoufox', 'extracted', 'camoufox.exe')
+    : path.join(__dirname, '..', 'build', 'camoufox', 'extracted', 'camoufox.exe');
+  if (fs.existsSync(camoufoxExe)) {
+    process.env.CAMOUFOX_EXE_PATH = camoufoxExe;
+  }
   // Turnstile 自动点击扩展（cf-autoclick）路径
   const extDir = app.isPackaged
     ? path.join(process.resourcesPath, 'extension')

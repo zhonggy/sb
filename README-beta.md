@@ -61,9 +61,10 @@ dist/VOXI优惠码提取器-portable.exe    ← 绿色单文件便携版（约 2
 | 依赖安装 | `npm install` | ✅ Electron 33.4.11 |
 | Electron 二进制 | 镜像下载 + `Expand-Archive` 解压到 `node_modules/electron/dist` | ✅ |
 | Chromium（Playwright 兜底引擎） | `HTTPS_PROXY=127.0.0.1:7897 npm run predist` | ✅ chromium-1243（153.0.8010.12） |
-| CloakBrowser（桌面版默认引擎） | `HTTPS_PROXY=127.0.0.1:7897 npm run precloak` | ✅ v146.0.7680.177（免费版免 key） |
-| 打包 | `npx electron-builder --win portable` | ✅ 402MB 单文件 |
-| 运行验证 | win-unpacked 直接运行 + 任务实测 | ✅ **任务浏览器来自 resources\cloak-browser\chrome.exe（CloakBrowser 生效）** |
+| CloakBrowser（备选引擎） | `HTTPS_PROXY=127.0.0.1:7897 npm run precloak` | ✅ v146.0.7680.177（免费版免 key） |
+| Camoufox（桌面版默认引擎） | `HTTPS_PROXY=127.0.0.1:7897 npm run precamoufox` | ✅ Firefox 152.0.4-beta.31 + 指纹预设 |
+| 打包 | `npx electron-builder --win portable` | ✅ 单文件便携版 |
+| 运行验证 | win-unpacked 直接运行 + 任务实测 | ✅ Camoufox 引擎（UA=预设 Firefox/147，webdriver 已伪装） |
 
 ### ⚠️ 首次运行 portable.exe 的可能提示
 
@@ -71,10 +72,17 @@ dist/VOXI优惠码提取器-portable.exe    ← 绿色单文件便携版（约 2
 
 嫌麻烦也可以直接运行免安装版：`dist/win-unpacked/VOXI优惠码提取器.exe`（双击即用，内容与 portable 完全一致）。
 
-### 桌面版默认引擎：CloakBrowser
+### 桌面版默认引擎：Camoufox
 
-- 任务日志出现 `浏览器引擎: CloakBrowser（humanize=true，无 key 使用免费版）` 即在用隐身浏览器
-- CloakBrowser 启动失败会**自动回退 Playwright 引擎**（日志有说明）
+- 任务日志出现 `浏览器引擎: Camoufox（Firefox 152 补丁 + Turnstile disable_coop）`
+- **Firefox 152 深度补丁 + 官方指纹预设**（UA/platform/screen/cores 按预设生效，UA 伪装为 Firefox/147）
+- `disable_coop` 原生允许点击跨域 iframe 的 **Turnstile 复选框**（cf-autoclick 扩展的等效替代，且无需扩展）
+- 启动失败自动回退链：Camoufox → CloakBrowser → Playwright
+- 切换引擎：`BROWSER_ENGINE=camoufox|cloak|playwright`
+
+### CloakBrowser（备选引擎）
+
+- 任务日志出现 `浏览器引擎: CloakBrowser（humanize=true，无 key 使用免费版）`
 - 「运行设置」里可填 License Key 升级最新版（留空用免费版 v146，免 key）
 - 有头模式下浏览器窗口可见，**遇到人机验证可直接用鼠标手动点**，程序自动继续
 

@@ -28,7 +28,7 @@ function killZombieBrowsers(dir) {
     for (const pid of pids) {
       try {
         const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-        if (cmd.includes(dir) && /chrome|chromium/i.test(cmd)) {
+        if (cmd.includes(dir) && /chrome|chromium|firefox|camoufox/i.test(cmd)) {
           process.kill(Number(pid), 'SIGKILL');
           killed++;
         }
@@ -43,11 +43,11 @@ function killZombieBrowsers(dir) {
   }
 }
 
-/** Chromium profile 锁文件（上次异常退出会残留，导致新启动报
- *  "The profile appears to be in use by another Chromium process" / exitCode=21）。
- *  任务队列是串行的、每账号同时只有一个浏览器，启动前清理是安全的。 */
+/** profile 锁文件清理（Chromium: Singleton*；Firefox/Camoufox: lock/.parentlock）
+ *  上次异常退出会残留，导致新启动报 "profile appears to be in use"。
+ *  任务队列串行、每账号同时只有一个浏览器，启动前清理是安全的。 */
 function cleanProfileLocks(dir) {
-  const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+  const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lock', '.parentlock'];
   let removed = 0;
   const details = [];
   for (const f of locks) {
@@ -292,9 +292,55 @@ async function afterLaunch(context) {
 }
 
 /**
+ * Camoufox 引擎（打补丁的 Firefox）：executablePath + CAMOU_CONFIG 指纹 + disable_coop
+ * 针对 Cloudflare Turnstile：disable_coop 允许点击跨域 iframe 的复选框。
+ */
+async function launchCamoufoxContext(accountId) {
+  const exe = require('./camoufox').getExePath();
+  if (!exe) throw new Error('camoufox 二进制不存在（build/camoufox/extracted/camoufox.exe，先跑 npm run precloak 同款下载）');
+  const { firefox } = require('playwright');
+  const cm = require('./camoufox');
+  const opts = {
+    executablePath: exe,
+    headless: config.headless,
+    locale: config.locale,
+    timezoneId: config.timezoneId,
+    viewport: { width: 1366, height: 900 },
+    firefoxUserPrefs: cm.launchPrefs(),
+    env: { ...cm.buildConfigEnv(), ...process.env },
+  };
+  // 代理优先级：Resin 粘性代理池（按账号）> 传统 PROXY_URL
+  if (resin.isEnabled()) {
+    const p = resin.forwardProxy(accountId);
+    opts.proxy = { server: p.server, username: p.username, password: p.password };
+  } else if (config.proxyUrl) {
+    opts.proxy = { server: config.proxyUrl };
+  }
+
+  let context = null;
+  try {
+    context = await firefox.launchPersistentContext(profileDirFor(accountId), opts);
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    if (/profile.*in use|lock|process_singleton|has been closed/i.test(msg)) {
+      log(null, 'warn', 'Camoufox 启动撞到 profile 锁，清理残留后重试一次…');
+      const dir = profileDirFor(accountId);
+      killZombieBrowsers(dir);
+      cleanProfileLocks(dir);
+      await sleep(500);
+      context = await firefox.launchPersistentContext(dir, opts);
+    } else {
+      throw e;
+    }
+  }
+  await afterLaunch(context);
+  return context;
+}
+
+/**
  * 启动浏览器上下文
  * @param {string} accountId 账号 ID（同时作为 Resin Account 身份）
- * @param {string} [engineOverride] 引擎覆盖：'playwright' | 'cloak'（任务级回退重试时用）
+ * @param {string} [engineOverride] 引擎覆盖：'playwright' | 'cloak' | 'camoufox'（任务级回退重试时用）
  */
 async function launchContext(accountId, engineOverride) {
   const engine = (engineOverride || config.browserEngine || '').toLowerCase();
@@ -303,6 +349,14 @@ async function launchContext(accountId, engineOverride) {
     log(null, 'info', `Resin 粘性代理: Platform=${cfg.platform} Account=${accountId}（${resin.maskUrl(cfg.url)}）`);
   } else if (resin.getResinConfig().url) {
     log(null, 'info', 'Resin 代理已停用（本次任务直连，不走代理）');
+  }
+  if (engine === 'camoufox') {
+    try {
+      log(null, 'info', '浏览器引擎: Camoufox（Firefox 152 补丁 + Turnstile disable_coop）');
+      return await launchCamoufoxContext(accountId);
+    } catch (e) {
+      log(null, 'warn', `Camoufox 启动失败，回退到 CloakBrowser/Playwright 引擎: ${String(e && e.message || e).split('\n')[0]}`);
+    }
   }
   if (engine === 'cloak') {
     try {

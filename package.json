@@ -9,10 +9,11 @@
     "probe": "node scripts/probe.js",
     "smoke": "node scripts/smoke.js",
     "electron": "electron .",
+    "precamoufox": "node scripts/prebuild-camoufox.js",
     "precloak": "node scripts/prebuild-cloak.js",
     "predist": "node scripts/prebuild-browsers.js",
-    "dist": "npm run predist && npm run precloak && electron-builder --win portable",
-    "dist-full": "npm run predist && npm run precloak && electron-builder --win"
+    "dist": "npm run predist && npm run precloak && npm run precamoufox && electron-builder --win portable",
+    "dist-full": "npm run predist && npm run precloak && npm run precamoufox && electron-builder --win"
   },
   "engines": {
     "node": ">=20"
@@ -45,6 +46,7 @@
     "extraResources": [
       { "from": "build/playwright-browsers", "to": "playwright-browsers" },
       { "from": "build/cloak-browser", "to": "cloak-browser", "filter": ["**/*", "!*.zip"] },
+      { "from": "build/camoufox", "to": "camoufox", "filter": ["**/*", "!*.zip"] },
       { "from": "extension", "to": "extension" }
     ],
     "win": {
