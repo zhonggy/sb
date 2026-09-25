@@ -77,6 +77,16 @@ dist/VOXI优惠码提取器-portable.exe    ← 绿色单文件便携版（约 2
 - CloakBrowser 启动失败会**自动回退 Playwright 引擎**（日志有说明）
 - 「运行设置」里可填 License Key 升级最新版（留空用免费版 v146，免 key）
 - 有头模式下浏览器窗口可见，**遇到人机验证可直接用鼠标手动点**，程序自动继续
+
+### Turnstile 自动点击扩展（cf-autoclick）
+
+内置 `extension/`（来自 [cf-autoclick](https://github.com/CloakHQ) 系 CDP 点击方案，随包分发）：
+
+- 启动日志 `已加载 Turnstile 自动点击扩展（cf-autoclick）`
+- **Turnstile 复选框一出现，扩展自动用 CDP 真实输入点击**（与程序内置的 120 秒监视+自动点击形成双保险）
+- 实测：在 CloakBrowser 中加载成功；用真实结构（动态 shadow DOM）的 CF iframe 验证，复选框被自动点击 ✓（Playwright 自身占用 CDP 也不影响扩展的 debugger）
+- 仅在**有头模式**下加载（headless 不支持扩展）；「运行设置」里可关闭
+- 前提还是那句：CF 得先愿意给这个 IP 渲染控件——IP 被拉黑时一样无框可点
 | 运行 exe | 双击 + 端口扫描 + API 验证 | ✅ 服务/页面/浏览器启动全部正常 |
 
 ---
