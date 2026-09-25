@@ -4,3 +4,8 @@ data/
 .DS_Store
 .env
 npm-debug.log*
+
+# Electron 桌面版构建产物
+build/
+dist/
+.playwright-browsers/
