@@ -103,6 +103,8 @@ async function findIframeAndClickAtRatio(tabId, payload) {
             const clickY = y_start + (iframeHeight * yRatio);
             
             // Step 4: Perform the click at the exact coordinates
+            // 先等一会：复选框刚渲染完毕时 CF 还在采集环境遥测，立刻点击会被打低分
+            await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 1500));
             await clickAtCoordinates(tabId, clickX, clickY);
             return { success: true };
 
@@ -154,28 +156,48 @@ async function showClickIndicator(tabId, x, y) {
 
 /**
  * Click at coordinates using CDP Input.dispatchMouseEvent
+ *
+ * 人类化改造（关键）：裸的「坐标瞬移点击」会被 Cloudflare Turnstile 的行为模型
+ * 判定为机器人（用户实测：点击后立刻 Verification failed）。现在改为：
+ *   1. 从左上方随机起点出发，沿带微弧线的路径移动（18-30 步 mouseMoved）
+ *   2. 每步带亚像素级抖动 + 8-30ms 随机步进节奏
+ *   3. 到达目标后人类停顿 200-700ms
+ *   4. 按下→保持 40-130ms→松开
+ *   5. 落点加 ±2px 随机偏移（人类点不准中心）
  */
 async function clickAtCoordinates(tabId, x, y) {
     // Show a visual indicator for the click
     // await showClickIndicator(tabId, x, y);
 
-    const dispatchMouseEvent = (type, button) => {
-        return chrome.debugger.sendCommand(
-            { tabId: tabId },
-            "Input.dispatchMouseEvent",
-            {
-                type: type,
-                x: x,
-                y: y,
-                button: button,
-                buttons: button === "left" ? 1 : 0,
-                clickCount: 1
-            }
-        );
-    };
+    const send = (params) => chrome.debugger.sendCommand({ tabId: tabId }, "Input.dispatchMouseEvent", params);
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-    // Simulate click sequence with a human-like delay
-    await dispatchMouseEvent("mousePressed", "left");
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 30 + 20));
-    await dispatchMouseEvent("mouseReleased", "left");
+    // 落点加微小随机偏移
+    const tx = x + (Math.random() * 4 - 2);
+    const ty = y + (Math.random() * 4 - 2);
+
+    // 起点：左上方随机位置（模拟鼠标从页面别处移来，杜绝「瞬移」）
+    const sx = Math.max(0, tx - 150 - Math.random() * 250);
+    const sy = Math.max(0, ty - 80 - Math.random() * 180);
+
+    // 分段移动（弧线 + 抖动 + 随机节奏）
+    const steps = 18 + Math.floor(Math.random() * 12);
+    for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const jx = (Math.random() - 0.5) * 1.6;
+        const jy = (Math.random() - 0.5) * 1.6;
+        const arc = Math.sin(t * Math.PI) * (Math.random() * 24 - 12); // 轻微弧线
+        const cx = sx + (tx - sx) * t + jx;
+        const cy = sy + (ty - sy) * t + jy + arc;
+        await send({ type: "mouseMoved", x: cx, y: cy, button: "none", buttons: 0 });
+        await sleep(8 + Math.random() * 22);
+    }
+
+    // 到达后的人类停顿（让 CF 采集「悬停」遥测）
+    await sleep(200 + Math.random() * 500);
+
+    // 人类节奏的按下/松开
+    await send({ type: "mousePressed", x: tx, y: ty, button: "left", buttons: 1, clickCount: 1 });
+    await sleep(40 + Math.random() * 90);
+    await send({ type: "mouseReleased", x: tx, y: ty, button: "left", buttons: 0, clickCount: 1 });
 }

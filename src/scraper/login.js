@@ -106,6 +106,35 @@ async function isLoggedInOnSite(page) {
  *  可能远超 5 秒。因此：先等 waitMs，再轮询最多 pollMs，复选框一出现就点。
  *
  *  返回: { found: boolean, clicked: boolean } */
+/**
+ * 人类化点击 Turnstile 复选框（跨域 iframe 内的元素）。
+ * 裸的 locator.click 是「瞬移+瞬时按下」，CF 行为模型会判机器人
+ * （实测：点击后立刻 Verification failed）。改为：
+ *  随机起点 → 多步 mouseMoved（带抖动）→ 悬停停顿 → 按下保持 → 松开。
+ */
+async function humanClickCheckbox(page, checkboxLocator) {
+  const box = await checkboxLocator.boundingBox().catch(() => null);
+  if (!box) throw new Error('拿不到复选框坐标');
+  const tx = box.x + box.width / 2 + (Math.random() * 4 - 2);
+  const ty = box.y + box.height / 2 + (Math.random() * 4 - 2);
+  const sx = Math.max(0, tx - 150 - Math.random() * 250);
+  const sy = Math.max(0, ty - 80 - Math.random() * 180);
+  const steps = 18 + Math.floor(Math.random() * 12);
+  await page.mouse.move(sx, sy);
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const jx = (Math.random() - 0.5) * 1.6;
+    const jy = (Math.random() - 0.5) * 1.6;
+    const arc = Math.sin(t * Math.PI) * (Math.random() * 24 - 12);
+    await page.mouse.move(sx + (tx - sx) * t + jx, sy + (ty - sy) * t + jy + arc);
+    await sleep(8 + Math.random() * 22);
+  }
+  await sleep(200 + Math.random() * 500); // 悬停
+  await page.mouse.down();
+  await sleep(40 + Math.random() * 90);
+  await page.mouse.up();
+}
+
 async function clickTurnstileCheckbox(page, job, waitMs = 5000, pollMs = 20000) {
   const out = { found: false, clicked: false };
   try {
@@ -135,8 +164,23 @@ async function clickTurnstileCheckbox(page, job, waitMs = 5000, pollMs = 20000) 
       return out;
     }
     out.found = true;
-    log(job, 'info', '发现 Turnstile 复选框，自动点击…');
-    await checkbox.click({ timeout: 10000 }).then(() => { out.clicked = true; }).catch(e => {
+    // 不要秒点：复选框刚渲染时 CF 还在采集环境遥测；且扩展可能已经点过——
+    // 先等 1.5-3 秒，检查复选框状态/token，未被点过才由我们补刀。
+    await sleep(1500 + Math.random() * 1500);
+    try {
+      const alreadyChecked = await checkbox.isChecked().catch(() => false);
+      const tokenOk = await page.evaluate(() => {
+        const el = document.querySelector('input[name="cf-turnstile-response"]');
+        return !!(el && el.value && el.value.length > 20);
+      }).catch(() => false);
+      if (alreadyChecked || tokenOk) {
+        log(job, 'info', '复选框已被点过/验证已通过，跳过自动点击（避免双重点击）');
+        out.clicked = true;
+        return out;
+      }
+    } catch (e) { /* 继续尝试点击 */ }
+    log(job, 'info', '发现 Turnstile 复选框，自动点击（人类化轨迹）…');
+    await humanClickCheckbox(page, checkbox).then(() => { out.clicked = true; }).catch(e => {
       log(job, 'warn', '复选框点击失败: ' + e.message.split('\n')[0]);
     });
     await sleep(2000); // 等验证跑完
@@ -410,4 +454,4 @@ async function saveSessionFailShot(page, job) {
   } catch (e) { /* noop */ }
 }
 
-module.exports = { doLogin, isLoggedInOnSite, acceptCookies, forceRemoveOverlays, clickTurnstileCheckbox, startTurnstileWatcher };
+module.exports = { doLogin, isLoggedInOnSite, acceptCookies, forceRemoveOverlays, clickTurnstileCheckbox, startTurnstileWatcher, humanClickCheckbox };
