@@ -14,6 +14,7 @@ const { chromium } = require('playwright');
 const config = require('../config');
 const { log, sleep } = require('../utils');
 const resin = require('./resin');
+const store = require('../store');
 
 const PROFILES_DIR = path.join(config.dataDir, 'profiles');
 
@@ -80,30 +81,42 @@ function profileDirFor(accountId) {
 
 /** 在页面加载前注入：掩盖自动化特征 + 劫持 clipboard / window.open */
 const initScript = () => {
-  // webdriver 标志
-  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  // chrome 对象
-  if (!window.chrome) window.chrome = { runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} };
-  // 权限查询
-  const origQuery = navigator.permissions && navigator.permissions.query;
-  if (origQuery) {
-    navigator.permissions.query = p =>
-      p && p.name === 'notifications'
-        ? Promise.resolve({ state: Notification.permission })
-        : origQuery(p);
-  }
-  // 语言
-  Object.defineProperty(navigator, 'languages', { get: () => ['en-GB', 'en'] });
-  // 插件数量
-  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+  // 所有补丁都防御式执行：CloakBrowser 在 C++ 层已处理多数指纹（webdriver 等），
+  // 重复 defineProperty 会和它的补丁冲突甚至导致浏览器崩溃（实测踩坑）——
+  // 因此只在属性「可配置」时才打补丁，且全部包 try/catch。
+  const safe = fn => { try { fn(); } catch (e) { /* 补丁浏览器可能锁定了该属性，跳过 */ } };
+  const defineIfConfigurable = (obj, key, descriptor) => {
+    const d = Object.getOwnPropertyDescriptor(obj, key);
+    if (d && d.configurable === false) return; // 被锁定（如 CloakBrowser 的补丁），不碰
+    Object.defineProperty(obj, key, { ...descriptor, configurable: true });
+  };
 
-  // ---- 捕获通道 ----
-  window.__clips = [];
-  window.__opens = [];
-  try {
+  // webdriver 标志
+  safe(() => defineIfConfigurable(navigator, 'webdriver', { get: () => undefined }));
+  // chrome 对象
+  safe(() => { if (!window.chrome) window.chrome = { runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} }; });
+  // 权限查询
+  safe(() => {
+    const origQuery = navigator.permissions && navigator.permissions.query;
+    if (origQuery) {
+      navigator.permissions.query = p =>
+        p && p.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : origQuery(p);
+    }
+  });
+  // 语言
+  safe(() => defineIfConfigurable(navigator, 'languages', { get: () => ['en-GB', 'en'] }));
+  // 插件数量
+  safe(() => defineIfConfigurable(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] }));
+
+  // ---- 捕获通道（优惠码提取的核心功能）----
+  safe(() => {
+    window.__clips = [];
+    window.__opens = [];
     navigator.clipboard.writeText = t => { window.__clips.push(String(t)); return Promise.resolve(); };
     navigator.clipboard.readText = () => Promise.resolve(window.__clips[window.__clips.length - 1] || '');
-  } catch (e) { /* noop */ }
+  });
   // copy 事件兜底（有些站点用 execCommand 复制）
   document.addEventListener('copy', e => {
     try {
@@ -111,11 +124,13 @@ const initScript = () => {
       if (t) window.__clips.push(String(t));
     } catch (err) { /* noop */ }
   }, true);
-  const origOpen = window.open;
-  window.open = (url, ...rest) => {
-    try { window.__opens.push(String(url)); } catch (e) { /* noop */ }
-    return origOpen ? origOpen.call(window, url, ...rest) : null;
-  };
+  safe(() => {
+    const origOpen = window.open;
+    window.open = (url, ...rest) => {
+      try { window.__opens.push(String(url)); } catch (e) { /* noop */ }
+      return origOpen ? origOpen.call(window, url, ...rest) : null;
+    };
+  });
 };
 
 async function launchPlaywrightContext(accountId) {
@@ -163,6 +178,15 @@ async function launchPlaywrightContext(accountId) {
   return context;
 }
 
+/** CloakBrowser license key：控制台设置 > 环境变量（免费版 v146 无需 key） */
+function getCloakLicenseKey() {
+  try {
+    const s = store.getSettings();
+    if (s && String(s.cloakLicenseKey || '').trim()) return String(s.cloakLicenseKey).trim();
+  } catch (e) { /* store 未就绪 */ }
+  return config.cloakLicenseKey || '';
+}
+
 /** CloakBrowser 引擎（ESM 包，CJS 用动态 import） */
 async function launchCloakContext(accountId) {
   const { launchPersistentContext } = await import('cloakbrowser');
@@ -184,7 +208,8 @@ async function launchCloakContext(accountId) {
   } else if (config.proxyUrl) {
     opts.proxy = config.proxyUrl;
   }
-  if (config.cloakLicenseKey) opts.licenseKey = config.cloakLicenseKey;
+  const licenseKey = getCloakLicenseKey();
+  if (licenseKey) opts.licenseKey = licenseKey;
   // 启动；撞到 profile 锁残留时同样清锁重试一次
   let context = null;
   try {

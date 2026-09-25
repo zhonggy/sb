@@ -9,9 +9,10 @@
     "probe": "node scripts/probe.js",
     "smoke": "node scripts/smoke.js",
     "electron": "electron .",
+    "precloak": "node scripts/prebuild-cloak.js",
     "predist": "node scripts/prebuild-browsers.js",
-    "dist": "npm run predist && electron-builder --win portable",
-    "dist-full": "npm run predist && electron-builder --win"
+    "dist": "npm run predist && npm run precloak && electron-builder --win portable",
+    "dist-full": "npm run predist && npm run precloak && electron-builder --win"
   },
   "engines": {
     "node": ">=20"
@@ -42,7 +43,8 @@
       "!node_modules/.bin/**"
     ],
     "extraResources": [
-      { "from": "build/playwright-browsers", "to": "playwright-browsers" }
+      { "from": "build/playwright-browsers", "to": "playwright-browsers" },
+      { "from": "build/cloak-browser", "to": "cloak-browser", "filter": ["**/*", "!*.zip"] }
     ],
     "win": {
       "target": "portable"

@@ -320,6 +320,9 @@ app.put('/api/settings', (req, res) => {
   if (typeof req.body.scheduleCron === 'string') patch.scheduleCron = req.body.scheduleCron;
   if (req.body.maxOffersPerRun != null) patch.maxOffersPerRun = Math.max(1, parseInt(req.body.maxOffersPerRun, 10) || 10);
   if (req.body.stepDelayMs != null) patch.stepDelayMs = Math.max(0, parseInt(req.body.stepDelayMs, 10) || 1500);
+  // CloakBrowser（桌面版默认引擎）：license key（留空=用免费版）
+  if (req.body.cloakLicenseKey != null) patch.cloakLicenseKey = String(req.body.cloakLicenseKey).trim();
+  if (typeof req.body.cloakHumanize === 'boolean') patch.cloakHumanize = req.body.cloakHumanize;
   store.updateSettings(patch);
   if ('scheduleEnabled' in patch || 'scheduleCron' in patch) scheduler.restartScheduler();
   res.json(store.getSettings());

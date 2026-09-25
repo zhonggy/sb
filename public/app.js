@@ -184,6 +184,8 @@ function renderSettings() {
   $('#set-schedule-cron').value = state.settings.scheduleCron || '';
   $('#set-max-offers').value = state.settings.maxOffersPerRun || 10;
   $('#set-delay').value = state.settings.stepDelayMs != null ? state.settings.stepDelayMs : 1500;
+  $('#set-cloak-key').value = state.settings.cloakLicenseKey || '';
+  $('#set-cloak-humanize').checked = state.settings.cloakHumanize !== false;
   $('#scheduler-status').textContent = state.settings.scheduleEnabled
     ? `定时: ${state.settings.scheduleCron}` : '定时: 未启用';
   $('#scheduler-status').className = 'badge ' + (state.settings.scheduleEnabled ? 'ok' : 'muted');
@@ -316,6 +318,8 @@ $('#btn-save-settings').addEventListener('click', async () => {
         scheduleCron: $('#set-schedule-cron').value.trim() || '0 8 * * *',
         maxOffersPerRun: parseInt($('#set-max-offers').value, 10) || 10,
         stepDelayMs: parseInt($('#set-delay').value, 10) || 1500,
+        cloakLicenseKey: $('#set-cloak-key').value.trim(),
+        cloakHumanize: $('#set-cloak-humanize').checked,
       },
     });
     toast('设置已保存', 'ok');

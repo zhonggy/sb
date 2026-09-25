@@ -36,6 +36,18 @@ function setupBrowsersPath() {
   return null;
 }
 
+/** CloakBrowser 二进制（打包版在 resources/cloak-browser，开发版在 build/cloak-browser）
+ *  桌面版默认用它跑任务（源码级隐身补丁，过 Cloudflare 通过率更高） */
+function setupCloakPath() {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'cloak-browser', 'chrome.exe')]
+    : [path.join(__dirname, '..', 'build', 'cloak-browser', 'chrome.exe')];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) { process.env.CLOAKBROWSER_BINARY_PATH = p; return p; }
+  }
+  return null;
+}
+
 (async () => {
   // ---- 环境准备（必须在 require server 之前） ----
   const dataDir = path.join(app.getPath('userData'), 'data');
@@ -44,8 +56,10 @@ function setupBrowsersPath() {
   process.env.HOST = '127.0.0.1';                 // 只监听本机，安全性
   if (!process.env.HEADLESS) process.env.HEADLESS = 'false'; // 桌面端默认有头
   if (!process.env.ADMIN_PASSWORD) process.env.ADMIN_PASSWORD = ''; // 本机单机使用，免密
+  if (!process.env.BROWSER_ENGINE) process.env.BROWSER_ENGINE = 'cloak'; // 桌面版默认 CloakBrowser
 
   const browsersPath = setupBrowsersPath();
+  const cloakPath = setupCloakPath();
   const PORT = await findFreePort(3920);
   process.env.PORT = String(PORT);
 
@@ -98,6 +112,15 @@ function setupBrowsersPath() {
     return;
   }
   createWindow();
+
+  // CloakBrowser 未随包附带时提示（不影响 Playwright 引擎兜底）
+  if (!cloakPath) {
+    dialog.showMessageBox({
+      type: 'warning',
+      title: '提示',
+      message: '未找到内置 CloakBrowser 二进制，任务将回退到 Playwright 引擎。如需 CloakBrowser，请执行 npm run precloak 后重新打包。',
+    });
+  }
 
   // 浏览器未随包附带时给出一次性提示
   if (!browsersPath) {

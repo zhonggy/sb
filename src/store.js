@@ -27,6 +27,9 @@ const defaults = () => ({
     resinPlatformName: '',
     // 启用开关：null=跟随配置（有URL即启用）| true=强制启用 | false=强制停用
     resinEnabled: null,
+    // CloakBrowser license key（空=免费版；填了则用最新版，需联网下载）
+    cloakLicenseKey: '',
+    cloakHumanize: true,
   },
 });
 
