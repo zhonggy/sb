@@ -222,8 +222,12 @@ async function launchCloakContext(accountId) {
   // 让上层 launchContext 的回退逻辑切到 Playwright 引擎。
   try {
     const warm = context.pages()[0] || await context.newPage();
+    // 不要 close 预热页面——实测关闭最后一个标签时 CloakBrowser 补丁浏览器
+    // 有概率整体退出（race），导致调用方 newPage 失败。改为注册 init script
+    // 后复位到 about:blank 留给调用方。
+    await warm.addInitScript(initScript);
     await warm.goto(config.siteUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await warm.close().catch(() => {});
+    await warm.goto('about:blank').catch(() => {});
   } catch (e) {
     await context.close().catch(() => {});
     throw e;
