@@ -29,8 +29,9 @@ try {
   }
 } catch (e) {
   console.error('[predist] 下载失败:', e.message.split('\n')[0]);
-  console.error('[predist] 国内网络请设置镜像源后重试:');
-  console.error('  PLAYWRIGHT_DOWNLOAD_HOST=https://registry.npmmirror.com/-/binary/playwright npm run predist');
+  console.error('[predist] 国内网络按优先级尝试：');
+  console.error('  1) 走本地代理（最快）: set HTTPS_PROXY=http://127.0.0.1:7897 && npm run predist');
+  console.error('  2) 镜像源（部分版本缺失）: set PLAYWRIGHT_DOWNLOAD_HOST=https://registry.npmmirror.com/-/binary/playwright && npm run predist');
   process.exit(1);
 }
 void isWin;

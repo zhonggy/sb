@@ -15,33 +15,54 @@
 git clone -b beta https://github.com/zhonggy/sb.git
 cd sb
 
-# 2. 装依赖
+# 2. 装依赖（网络失败就多重试几次，npm 有时会抽风）
 npm install
 ```
 
-### 下载 Electron 和 Chromium（国内网络用镜像）
+### 下载 Electron 二进制（如 npm install 没自动下全）
 
-Electron 主程序和 Chromium 浏览器都要从国外服务器下载，国内直连很慢或失败，设置镜像：
+Electron 主程序约 110MB。若 `node_modules/electron/dist/electron.exe` 不存在，手动补：
 
 ```bash
-# Electron 镜像（写入 .npmrc 后重装）
-npm config set electron_mirror https://npmmirror.com/mirrors/electron/
-npm install
+# 镜像下载（如失败，把 https://npmmirror.com 换成你的代理出口）
+curl -L -o electron.zip "https://npmmirror.com/mirrors/electron/33.4.11/electron-v33.4.11-win32-x64.zip"
+# 用资源管理器解压，或 PowerShell：
+#   Expand-Archive -Path electron.zip -DestinationPath node_modules\electron\dist -Force
+```
 
-# Chromium 镜像（构建时下载浏览器）
-set PLAYWRIGHT_DOWNLOAD_HOST=https://registry.npmmirror.com/-/binary/playwright
+### 下载 Chromium + 构建
+
+```bash
+# Chromium（约 170MB，走本地代理最快；没有代理再用镜像，或重试）
+set HTTPS_PROXY=http://127.0.0.1:7897
+set HTTP_PROXY=http://127.0.0.1:7897
 npm run dist
+```
+
+```bash
+# 备用：镜像源（部分版本镜像缺失，失败就走上面的代理）
+set PLAYWRIGHT_DOWNLOAD_HOST=https://registry.npmmirror.com/-/binary/playwright
+npm run predist
+npx electron-builder --win portable
 ```
 
 ### 产物
 
 ```
-dist/VOXI优惠码提取器-portable.exe    ← 绿色单文件便携版（约 200MB）
+dist/VOXI优惠码提取器-portable.exe    ← 绿色单文件便携版（约 270MB）
 ```
 
-把这个 exe 拷到任何 Windows 电脑上，**双击即用**，无需安装。
+双击即用，无需安装任何环境。> `npm run dist-full` 可构建带安装向导的完整版（dist/ 下会有 setup.exe，默认装在 `%LOCALAPPDATA%\Programs\VOXI优惠码提取器`）。
 
-> `npm run dist-full` 可构建带安装向导的完整版（dist/ 下会有 setup.exe，默认装在 `%LOCALAPPDATA%\Programs\VOXI优惠码提取器`）。
+### 已验证的构建记录（2026-09-25，Windows x64）
+
+| 步骤 | 命令 | 结果 |
+|---|---|---|
+| 依赖安装 | `npm install` | ✅ Electron 33.4.11 |
+| Electron 二进制 | 镜像下载 + `Expand-Archive` 解压到 `node_modules/electron/dist` | ✅ |
+| Chromium | `HTTPS_PROXY=127.0.0.1:7897 npm run predist` | ✅ chromium-1243 |
+| 打包 | `npx electron-builder --win portable` | ✅ 268MB 单文件 |
+| 运行 exe | 双击 + 端口扫描 + API 验证 | ✅ 服务/页面/浏览器启动全部正常 |
 
 ---
 
