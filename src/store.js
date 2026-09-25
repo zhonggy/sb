@@ -30,6 +30,8 @@ const defaults = () => ({
     // CloakBrowser license key（空=免费版；填了则用最新版，需联网下载）
     cloakLicenseKey: '',
     cloakHumanize: true,
+    // Turnstile 自动点击扩展（cf-autoclick，仅 headed 模式生效）
+    cfExtension: true,
   },
 });
 

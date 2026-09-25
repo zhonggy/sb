@@ -60,6 +60,13 @@ function setupCloakPath() {
 
   const browsersPath = setupBrowsersPath();
   const cloakPath = setupCloakPath();
+  // Turnstile 自动点击扩展（cf-autoclick）路径
+  const extDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'extension')
+    : path.join(__dirname, '..', 'extension');
+  if (fs.existsSync(path.join(extDir, 'manifest.json'))) {
+    process.env.TURNSTILE_EXTENSION_DIR = extDir;
+  }
   const PORT = await findFreePort(3920);
   process.env.PORT = String(PORT);
 

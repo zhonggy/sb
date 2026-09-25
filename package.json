@@ -44,7 +44,8 @@
     ],
     "extraResources": [
       { "from": "build/playwright-browsers", "to": "playwright-browsers" },
-      { "from": "build/cloak-browser", "to": "cloak-browser", "filter": ["**/*", "!*.zip"] }
+      { "from": "build/cloak-browser", "to": "cloak-browser", "filter": ["**/*", "!*.zip"] },
+      { "from": "extension", "to": "extension" }
     ],
     "win": {
       "target": "portable"

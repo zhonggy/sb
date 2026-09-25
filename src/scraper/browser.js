@@ -147,8 +147,9 @@ async function launchPlaywrightContext(accountId) {
       '--disable-dev-shm-usage',
       '--disable-infobars',
       '--window-size=1366,900',
+      ...extensionArgs(),
     ],
-    ignoreDefaultArgs: ['--enable-automation'],
+    ignoreDefaultArgs: ['--enable-automation', '--disable-extensions'],
   };
   // 代理优先级：Resin 粘性代理池（按账号）> 传统 PROXY_URL
   if (resin.isEnabled()) {
@@ -187,6 +188,39 @@ function getCloakLicenseKey() {
   return config.cloakLicenseKey || '';
 }
 
+/**
+ * Turnstile 自动点击扩展（cf-autoclick）目录
+ * 打包版：Electron 主进程设置 TURNSTILE_EXTENSION_DIR 指向 resources/extension
+ * 开发版：仓库根目录 extension/
+ * 返回 null 表示不可用（未随包/被关闭）。
+ */
+function getExtensionDir() {
+  let enabled = true;
+  try { enabled = store.getSettings().cfExtension !== false; } catch (e) { /* store 未就绪 */ }
+  if (process.env.CF_EXTENSION === 'false') enabled = false;
+  if (!enabled) return null;
+
+  const candidates = [];
+  if (process.env.TURNSTILE_EXTENSION_DIR) candidates.push(process.env.TURNSTILE_EXTENSION_DIR);
+  candidates.push(path.join(__dirname, '..', '..', 'extension'));
+  for (const d of candidates) {
+    try { if (fs.existsSync(path.join(d, 'manifest.json'))) return d; } catch (e) { /* continue */ }
+  }
+  return null;
+}
+
+/** 扩展启动参数（Chrome 137+ 需禁用 DisableLoadExtensionCommandLineSwitch 才能命令行装扩展） */
+function extensionArgs() {
+  const dir = getExtensionDir();
+  if (!dir) return [];
+  return [
+    `--disable-extensions-except=${dir}`,
+    `--load-extension=${dir}`,
+    '--disable-features=DisableLoadExtensionCommandLineSwitch',
+    '--silent-debugger-extension-api',
+  ];
+}
+
 /** CloakBrowser 引擎（ESM 包，CJS 用动态 import） */
 async function launchCloakContext(accountId) {
   const { launchPersistentContext } = await import('cloakbrowser');
@@ -199,7 +233,7 @@ async function launchCloakContext(accountId) {
     viewport: { width: 1366, height: 900 },
     humanize: config.cloakHumanize,
     geoip: config.cloakGeoip,
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    args: ['--no-sandbox', '--disable-dev-shm-usage', ...extensionArgs()],
   };
   // 代理优先级：Resin 粘性代理池（按账号）> 传统 PROXY_URL
   if (resin.isEnabled()) {
@@ -273,12 +307,17 @@ async function launchContext(accountId, engineOverride) {
   if (engine === 'cloak') {
     try {
       log(null, 'info', `浏览器引擎: CloakBrowser（humanize=${config.cloakHumanize}${config.cloakLicenseKey ? '，已配置 license key' : '，无 key 使用免费版'}）`);
-      return await launchCloakContext(accountId);
+      const ctx = await launchCloakContext(accountId);
+      if (getExtensionDir() && !config.headless) log(null, 'info', '已加载 Turnstile 自动点击扩展（cf-autoclick）');
+      else if (getExtensionDir() && config.headless) log(null, 'warn', 'Turnstile 扩展需要 headed 模式，当前 headless 下不加载');
+      return ctx;
     } catch (e) {
       log(null, 'warn', `CloakBrowser 启动失败，回退到 Playwright 引擎: ${String(e && e.message || e).split('\n')[0]}`);
     }
   }
-  return launchPlaywrightContext(accountId);
+  const pctx = await launchPlaywrightContext(accountId);
+  if (getExtensionDir() && !config.headless) log(null, 'info', '已加载 Turnstile 自动点击扩展（cf-autoclick）');
+  return pctx;
 }
 
 /** 给已存在的 context 追加 init script 的辅助（保持向后兼容） */

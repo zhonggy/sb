@@ -323,6 +323,7 @@ app.put('/api/settings', (req, res) => {
   // CloakBrowser（桌面版默认引擎）：license key（留空=用免费版）
   if (req.body.cloakLicenseKey != null) patch.cloakLicenseKey = String(req.body.cloakLicenseKey).trim();
   if (typeof req.body.cloakHumanize === 'boolean') patch.cloakHumanize = req.body.cloakHumanize;
+  if (typeof req.body.cfExtension === 'boolean') patch.cfExtension = req.body.cfExtension;
   store.updateSettings(patch);
   if ('scheduleEnabled' in patch || 'scheduleCron' in patch) scheduler.restartScheduler();
   res.json(store.getSettings());
