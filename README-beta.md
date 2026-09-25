@@ -60,8 +60,23 @@ dist/VOXI优惠码提取器-portable.exe    ← 绿色单文件便携版（约 2
 |---|---|---|
 | 依赖安装 | `npm install` | ✅ Electron 33.4.11 |
 | Electron 二进制 | 镜像下载 + `Expand-Archive` 解压到 `node_modules/electron/dist` | ✅ |
-| Chromium | `HTTPS_PROXY=127.0.0.1:7897 npm run predist` | ✅ chromium-1243 |
-| 打包 | `npx electron-builder --win portable` | ✅ 268MB 单文件 |
+| Chromium（Playwright 兜底引擎） | `HTTPS_PROXY=127.0.0.1:7897 npm run predist` | ✅ chromium-1243（153.0.8010.12） |
+| CloakBrowser（桌面版默认引擎） | `HTTPS_PROXY=127.0.0.1:7897 npm run precloak` | ✅ v146.0.7680.177（免费版免 key） |
+| 打包 | `npx electron-builder --win portable` | ✅ 402MB 单文件 |
+| 运行验证 | win-unpacked 直接运行 + 任务实测 | ✅ **任务浏览器来自 resources\cloak-browser\chrome.exe（CloakBrowser 生效）** |
+
+### ⚠️ 首次运行 portable.exe 的可能提示
+
+程序未做数字签名，Windows SmartScreen 可能提示「Windows 已保护你的电脑」：点 **更多信息 → 仍要运行** 即可（只出现一次）。
+
+嫌麻烦也可以直接运行免安装版：`dist/win-unpacked/VOXI优惠码提取器.exe`（双击即用，内容与 portable 完全一致）。
+
+### 桌面版默认引擎：CloakBrowser
+
+- 任务日志出现 `浏览器引擎: CloakBrowser（humanize=true，无 key 使用免费版）` 即在用隐身浏览器
+- CloakBrowser 启动失败会**自动回退 Playwright 引擎**（日志有说明）
+- 「运行设置」里可填 License Key 升级最新版（留空用免费版 v146，免 key）
+- 有头模式下浏览器窗口可见，**遇到人机验证可直接用鼠标手动点**，程序自动继续
 | 运行 exe | 双击 + 端口扫描 + API 验证 | ✅ 服务/页面/浏览器启动全部正常 |
 
 ---
