@@ -56,7 +56,20 @@ function setupCloakPath() {
   process.env.HOST = '127.0.0.1';                 // 只监听本机，安全性
   if (!process.env.HEADLESS) process.env.HEADLESS = 'false'; // 桌面端默认有头
   if (!process.env.ADMIN_PASSWORD) process.env.ADMIN_PASSWORD = ''; // 本机单机使用，免密
-  if (!process.env.BROWSER_ENGINE) process.env.BROWSER_ENGINE = 'camoufox'; // 桌面版默认 Camoufox（disable_coop 过 Turnstile）
+  // 桌面版默认用系统 Chrome（实测：CF 信任真 Chrome 二进制，Turnstile 无感通过；
+  // PW 自带 Chromium / 补丁浏览器会被识别）。找不到 Chrome 则回退 PW 自带。
+  if (!process.env.PW_CHANNEL) {
+    const chromePaths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Google\\Chrome\\Application\\chrome.exe'),
+    ].filter(Boolean);
+    if (chromePaths.some(p => fs.existsSync(p))) {
+      process.env.PW_CHANNEL = 'chrome';
+      console.log('[main] 检测到系统 Chrome，桌面版默认使用系统 Chrome 跑任务（过 Turnstile 率最高）');
+    }
+  }
+  if (!process.env.BROWSER_ENGINE) process.env.BROWSER_ENGINE = 'playwright'; // 桌面版默认引擎（配合 PW_CHANNEL=chrome 即系统 Chrome）
 
   const browsersPath = setupBrowsersPath();
   const cloakPath = setupCloakPath();

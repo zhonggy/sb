@@ -159,6 +159,7 @@ async function launchPlaywrightContext(accountId) {
   }
 
   // 启动；撞到 profile 锁残留（上次异常退出）时，清锁+杀残留进程后重试一次
+  // 系统 Chrome 不存在（channel 启动失败）时，回退到 PW 自带 Chromium
   let context = null;
   try {
     context = await chromium.launchPersistentContext(profileDirFor(accountId), launchOpts);
@@ -171,6 +172,10 @@ async function launchPlaywrightContext(accountId) {
       cleanProfileLocks(dir);
       await sleep(500);
       context = await chromium.launchPersistentContext(dir, launchOpts);
+    } else if (config.channel && /chrome|channel|executable|Failed to launch/i.test(msg)) {
+      log(null, 'warn', `系统 Chrome（${config.channel}）启动失败，回退 Playwright 自带 Chromium: ${msg.split('\n')[0]}`);
+      const fallbackOpts = { ...launchOpts, channel: undefined };
+      context = await chromium.launchPersistentContext(profileDirFor(accountId), fallbackOpts);
     } else {
       throw e;
     }
