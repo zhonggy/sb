@@ -25,6 +25,9 @@ services:
     image: voxi-extractor:latest
     container_name: voxi-extractor
     restart: unless-stopped
+    # tini 接管 PID 1：回收 Chrome/Xvfb 僵尸进程，且避免脚本直接当 PID 1
+    #（xvfb-run 类 SIGUSR1 握手在父进程为 PID 1 时会挂死，详见 Dockerfile）
+    init: true
     ports:
       - "3920:3920"
     environment:

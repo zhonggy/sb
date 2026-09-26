@@ -21,10 +21,16 @@ COPY src ./src
 COPY public ./public
 # cf-autoclick（Turnstile 自动点击）扩展：HEADLESS=false + Xvfb 时自动加载
 COPY extension ./extension
+# 启动入口（起 Xvfb 后 exec CMD）
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Xvfb：容器内跑 headed 浏览器（HEADLESS=false）的虚拟显示。
 # 实测：Turnstile widget 对 headless Chromium 直接拒绝渲染（iframe 都不出现），
 # 对 headed 真 Chromium 可无感/自动点击通过——与桌面版（系统 Chrome）行为一致。
+# ⚠️ 就绪握手不用 xvfb-run：X server 对 getppid()==1（PID 1）不发就绪信号，
+# xvfb-run 作为容器 PID 1 会永久挂起（Xvfb 起了但业务进程从未执行）。
+# 改用 docker-entrypoint.sh：后台 Xvfb + 轮询 socket 判就绪。
 RUN apt-get update && apt-get install -y --no-install-recommends xvfb \
     && rm -rf /var/lib/apt/lists/*
 
@@ -49,4 +55,5 @@ EXPOSE 3920
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3920)+'/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["xvfb-run", "-a", "-s", "-screen 0 1366x900x24", "node", "src/server.js"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["node", "src/server.js"]
