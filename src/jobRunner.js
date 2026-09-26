@@ -10,6 +10,7 @@ const { sleep, uid, log } = require('./utils');
 const { launchContext } = require('./scraper/browser');
 const { doLogin, isLoggedInOnSite, acceptCookies } = require('./scraper/login');
 const { extractVoxi } = require('./scraper/extractVoxi');
+const flaresolverr = require('./scraper/flaresolverr');
 
 const queue = [];
 let running = false;
@@ -70,29 +71,57 @@ async function processNext() {
   }
 }
 
-/** 任务编排：CloakBrowser 因 license/会话限制失败时，自动回退 Playwright 引擎重试一次 */
+/** 任务编排：两级自动兜底
+ *  ① CloakBrowser 因 license/会话限制失败时，回退 Playwright 引擎重试一次
+ *  ② 登录被 Cloudflare/Turnstile 拦截且配了 FlareSolverr 时，预热 Cookie + 同 UA 重试一次 */
 async function runJob(job) {
   await runJobOnce(job, null);
-  const j = store.getDb().jobs.find(x => x.id === job.id);
-  if (!j || j.status !== 'failed' || job.retried) return;
-  const engine = (config.browserEngine || '').toLowerCase();
-  const cloakErr = /CloakBrowser Pro|license|session limit|couldn't verify/i.test(j.error || '');
-  if (engine === 'cloak' && cloakErr) {
-    job.retried = true;
-    log(job, 'warn', `CloakBrowser 失败（${(j.error || '').split('\n')[0]}）——免费 key 仅支持 1 个并发会话且 license 服务器从本机直连不稳定；回退 Playwright 引擎重试一次`);
-    store.updateJob(job.id, { status: 'queued', error: null, finishedAt: null, logs: j.logs });
-    await runJobOnce(job, 'playwright');
+  let j = store.getDb().jobs.find(x => x.id === job.id);
+
+  // 兜底①：CloakBrowser license/会话限制 → 换 Playwright 引擎重试
+  if (j && j.status === 'failed' && !job.retried) {
+    const engine = (config.browserEngine || '').toLowerCase();
+    const cloakErr = /CloakBrowser Pro|license|session limit|couldn't verify/i.test(j.error || '');
+    if (engine === 'cloak' && cloakErr) {
+      job.retried = true;
+      log(job, 'warn', `CloakBrowser 失败（${(j.error || '').split('\n')[0]}）——免费 key 仅支持 1 个并发会话且 license 服务器从本机直连不稳定；回退 Playwright 引擎重试一次`);
+      store.updateJob(job.id, { status: 'queued', error: null, finishedAt: null, logs: j.logs });
+      await runJobOnce(job, 'playwright');
+      j = store.getDb().jobs.find(x => x.id === job.id);
+    }
+  }
+
+  // 兜底②：被 Cloudflare/Turnstile 拦截 → FlareSolverr 预热 Cookie + 同 UA 重试
+  if (j && j.status === 'failed' && !job.fsRetried && flaresolverr.isEnabled()) {
+    const cfBlocked = /cloudflare|turnstile|人机验证|challenge|输入框/i.test(j.error || '');
+    if (cfBlocked) {
+      job.fsRetried = true;
+      log(job, 'warn', '登录疑似被 Cloudflare 拦截——尝试 FlareSolverr 预热 Cookie 后重试一次');
+      store.updateJob(job.id, { status: 'queued', error: null, finishedAt: null, logs: j.logs });
+      // Camoufox 是 Firefox 指纹，与 FlareSolverr 的 Chrome UA 不匹配（cf_clearance 会失效），
+      // 兜底重试强制用 Playwright 引擎
+      const engine = (config.browserEngine || '').toLowerCase();
+      await runJobOnce(job, engine === 'camoufox' ? 'playwright' : null, { flaresolverrWarm: true });
+    }
   }
 }
 
-async function runJobOnce(job, engineOverride) {
+async function runJobOnce(job, engineOverride, extra = {}) {
   const account = store.getAccount(job.accountId);
   if (!account) {
     store.updateJob(job.id, { status: 'failed', error: '账号已被删除', finishedAt: new Date().toISOString() });
     return;
   }
   store.updateJob(job.id, { status: 'running' });
-  log(job, 'info', `开始任务（账号: ${account.email}）${engineOverride ? '（引擎: ' + engineOverride + '）' : ''}`);
+  log(job, 'info', `开始任务（账号: ${account.email}）${engineOverride ? '（引擎: ' + engineOverride + '）' : ''}${extra.flaresolverrWarm ? '（FlareSolverr 兜底重试）' : ''}`);
+
+  // FlareSolverr 兜底重试：先预热（拿 cf_clearance 等 Cookie + 它过质询用的 UA），
+  // 预热失败则照常裸跑（不阻断）
+  let launchOpts;
+  if (extra.flaresolverrWarm) {
+    const warmRes = await flaresolverr.warm(job, job.accountId);
+    if (warmRes) launchOpts = { userAgent: warmRes.userAgent || undefined, preCookies: warmRes.cookies };
+  }
 
   const settings = store.getSettings();
 
@@ -102,7 +131,7 @@ async function runJobOnce(job, engineOverride) {
   let finalError = null;
 
   try {
-    context = await launchContext(job.accountId, engineOverride);
+    context = await launchContext(job.accountId, engineOverride, launchOpts);
     const page = context.pages()[0] || await context.newPage();
 
     // Cookie 导入优先（跳过用户名密码登录）

@@ -130,6 +130,7 @@ npm start                                      # 默认 http://localhost:3920
 | `STEP_DELAY_MS` | `1500` | 每次点击间隔，太短易触发风控 |
 | `MAX_OFFERS_PER_RUN` | `20` | 单轮最多处理卡片数 |
 | `SCHEDULE_ENABLED` / `SCHEDULE_CRON` | `false` / `0 8 * * *` | 定时任务 |
+| `FLARESOLVERR_URL` | 空（Docker 内置 `http://flaresolverr:8191/v1`） | FlareSolverr 兜底服务地址；`off` = 禁用，见下文 |
 
 ## 🔍 工作原理（基于 2026-09 实测的站点结构）
 
@@ -260,6 +261,16 @@ Resin 粘性代理: Platform=Default Account=acc_xxxx（http://127.0.0.1:2260/**
 - Resin（住宅 IP）+ CloakBrowser（`BROWSER_ENGINE=cloak`）是过 Turnstile 的完全体：IP 信誉和浏览器指纹都解决
 - 出口在海外时建议开 `CLOAKBROWSER_GEOIP=true`（按出口 IP 自动设置时区/语言，与 IP 一致降低可疑度）
 - `RESIN_URL` 优先于传统 `PROXY_URL`
+
+## 🧯 FlareSolverr 兜底（可选，Cloudflare 拦截自动重试）
+
+登录被 Cloudflare/Turnstile 拦截时，自动多一次兜底重试：先让 [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)（undetected-chromedriver 过质询服务，官方仓库 2026 年仍在活跃维护，v3.5+ 支持 Turnstile）打开站点过掉质询，拿到 `cf_clearance` 等 Cookie + 它所用的 userAgent，再用**同一 UA** 启动 Playwright 注入这些 Cookie 重试登录（cf_clearance 绑定 UA + 出口 IP，两边必须一致；开了 Resin/代理时 FlareSolverr 会自动走同一代理）。
+
+- **Docker Compose 部署默认启用**：compose 里已内置 `flaresolverr` 服务容器（仅内网访问，不对外暴露端口），无需额外配置
+- **本地/独立部署**：自己跑一个 FlareSolverr（如 `docker run -d -p 8191:8191 ghcr.io/flaresolverr/flaresolverr:latest`），然后在 `.env` 设 `FLARESOLVERR_URL=http://127.0.0.1:8191/v1`
+- **关闭**：`.env` 里设 `FLARESOLVERR_URL=off`
+
+触发时机：仅当首次登录失败且错误信息命中 Cloudflare/Turnstile 相关特征时才重试一次，正常流程零开销。日志中会看到 `FlareSolverr 预热中…` / `已预注入 N 条 Cookie` 等记录。注意它与 CloakBrowser、Cookie 导入是互补关系：FlareSolverr 能过的是 Cloudflare 整页质询并预热 Cookie，登录表单内的 Turnstile 交互仍依赖主引擎或导入 Cookie。
 
 ## 🛠️ 常见问题
 

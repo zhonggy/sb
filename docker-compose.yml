@@ -1,4 +1,17 @@
 services:
+  # FlareSolverr：Cloudflare 质询/Turnstile 求解服务（官方仓库 2026 年仍在活跃维护）
+  # 仅内网访问（voxi-extractor 通过 http://flaresolverr:8191/v1 调用），不对外暴露端口
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: voxi-flaresolverr
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/London}
+      - LOG_LEVEL=${FS_LOG_LEVEL:-info}
+    # 如需从宿主机调试可打开：
+    # ports:
+    #   - "127.0.0.1:8191:8191"
+
   voxi-extractor:
     build:
       context: .
@@ -32,6 +45,11 @@ services:
       # Resin 粘性代理池（可选，优先于 PROXY_URL）：按账号分配粘性 IP
       - RESIN_URL=${RESIN_URL:-}
       - RESIN_PLATFORM_NAME=${RESIN_PLATFORM_NAME:-Default}
+      # FlareSolverr（Cloudflare 拦截兜底）：登录被 CF/Turnstile 卡住时自动预热 Cookie 重试；
+      # 设 off 可禁用（不用 FlareSolverr 也能正常跑）
+      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-http://flaresolverr:8191/v1}
+      - FLARESOLVERR_TIMEOUT_MS=${FLARESOLVERR_TIMEOUT_MS:-90000}
+      - FLARESOLVERR_MAX_TIMEOUT=${FLARESOLVERR_MAX_TIMEOUT:-60000}
     volumes:
       # 账号/结果/浏览器会话/截图 全部持久化
       - ./data:/app/data

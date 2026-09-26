@@ -41,6 +41,13 @@ const config = {
   cloakHumanize: env('CLOAKBROWSER_HUMANIZE', 'true') === 'true',
   cloakGeoip: env('CLOAKBROWSER_GEOIP', 'false') === 'true',
 
+  // FlareSolverr（可选，Cloudflare 质询/Turnstile 求解服务）。
+  // 登录被 Cloudflare 拦截时自动兜底：先让 FlareSolverr 过质询拿 cf_clearance
+  // 等 Cookie + UA，再用同一 UA 重试。空 = 禁用（off/false/disabled 也视为禁用）
+  flaresolverrUrl: (/^(off|false|disabled|none)$/i.test(env('FLARESOLVERR_URL', '')) ? '' : env('FLARESOLVERR_URL', '')),
+  flaresolverrTimeoutMs: parseInt(env('FLARESOLVERR_TIMEOUT_MS', '90000'), 10), // 整体 HTTP 超时
+  flaresolverrMaxTimeout: parseInt(env('FLARESOLVERR_MAX_TIMEOUT', '60000'), 10), // 传给 FS 的求解超时
+
   // 超时与节奏（毫秒）
   navTimeoutMs: parseInt(env('NAV_TIMEOUT_MS', '60000'), 10),
   loginTimeoutMs: parseInt(env('LOGIN_TIMEOUT_MS', '90000'), 10),

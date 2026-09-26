@@ -133,14 +133,15 @@ const initScript = () => {
   });
 };
 
-async function launchPlaywrightContext(accountId) {
+async function launchPlaywrightContext(accountId, opts = {}) {
   const launchOpts = {
     headless: config.headless,
     channel: config.channel,
     locale: config.locale,
     timezoneId: config.timezoneId,
     viewport: { width: 1366, height: 900 },
-    userAgent: config.userAgent,
+    // FlareSolverr 兜底重试时复用它过质询用的 UA（cf_clearance 绑定 UA+IP，两边必须一致）
+    userAgent: opts.userAgent || config.userAgent,
     args: [
       '--disable-blink-features=AutomationControlled',
       '--no-sandbox',
@@ -227,14 +228,14 @@ function extensionArgs() {
 }
 
 /** CloakBrowser 引擎（ESM 包，CJS 用动态 import） */
-async function launchCloakContext(accountId) {
+async function launchCloakContext(accountId, ctxOpts = {}) {
   const { launchPersistentContext } = await import('cloakbrowser');
   const opts = {
     userDataDir: profileDirFor(accountId),
     headless: config.headless,
     locale: config.locale,
     timezone: config.timezoneId,
-    userAgent: config.userAgent,
+    userAgent: ctxOpts.userAgent || config.userAgent,
     viewport: { width: 1366, height: 900 },
     humanize: config.cloakHumanize,
     geoip: config.cloakGeoip,
@@ -346,9 +347,22 @@ async function launchCamoufoxContext(accountId) {
  * 启动浏览器上下文
  * @param {string} accountId 账号 ID（同时作为 Resin Account 身份）
  * @param {string} [engineOverride] 引擎覆盖：'playwright' | 'cloak' | 'camoufox'（任务级回退重试时用）
+ * @param {object} [opts] 扩展选项：{ userAgent, preCookies }——FlareSolverr 兜底重试用：
+ *   userAgent 覆盖默认 UA（与 cf_clearance 绑定的 UA 保持一致），preCookies 启动后立即注入
  */
-async function launchContext(accountId, engineOverride) {
+async function launchContext(accountId, engineOverride, opts = {}) {
   const engine = (engineOverride || config.browserEngine || '').toLowerCase();
+  const injectPreCookies = async ctx => {
+    if (opts.preCookies && opts.preCookies.length) {
+      try {
+        await ctx.addCookies(opts.preCookies);
+        log(null, 'info', `已预注入 ${opts.preCookies.length} 条 Cookie（${opts.preCookies.map(c => c.name).slice(0, 10).join(', ')}）`);
+      } catch (e) {
+        log(null, 'warn', `预注入 Cookie 失败: ${e.message.split('\n')[0]}`);
+      }
+    }
+    return ctx;
+  };
   if (resin.isEnabled()) {
     const cfg = resin.getResinConfig();
     log(null, 'info', `Resin 粘性代理: Platform=${cfg.platform} Account=${accountId}（${resin.maskUrl(cfg.url)}）`);
@@ -358,7 +372,7 @@ async function launchContext(accountId, engineOverride) {
   if (engine === 'camoufox') {
     try {
       log(null, 'info', '浏览器引擎: Camoufox（Firefox 152 补丁 + Turnstile disable_coop）');
-      return await launchCamoufoxContext(accountId);
+      return await injectPreCookies(await launchCamoufoxContext(accountId));
     } catch (e) {
       log(null, 'warn', `Camoufox 启动失败，回退到 CloakBrowser/Playwright 引擎: ${String(e && e.message || e).split('\n')[0]}`);
     }
@@ -366,17 +380,17 @@ async function launchContext(accountId, engineOverride) {
   if (engine === 'cloak') {
     try {
       log(null, 'info', `浏览器引擎: CloakBrowser（humanize=${config.cloakHumanize}${config.cloakLicenseKey ? '，已配置 license key' : '，无 key 使用免费版'}）`);
-      const ctx = await launchCloakContext(accountId);
+      const ctx = await launchCloakContext(accountId, opts);
       if (getExtensionDir() && !config.headless) log(null, 'info', '已加载 Turnstile 自动点击扩展（cf-autoclick）');
       else if (getExtensionDir() && config.headless) log(null, 'warn', 'Turnstile 扩展需要 headed 模式，当前 headless 下不加载');
-      return ctx;
+      return await injectPreCookies(ctx);
     } catch (e) {
       log(null, 'warn', `CloakBrowser 启动失败，回退到 Playwright 引擎: ${String(e && e.message || e).split('\n')[0]}`);
     }
   }
-  const pctx = await launchPlaywrightContext(accountId);
+  const pctx = await launchPlaywrightContext(accountId, opts);
   if (getExtensionDir() && !config.headless) log(null, 'info', '已加载 Turnstile 自动点击扩展（cf-autoclick）');
-  return pctx;
+  return await injectPreCookies(pctx);
 }
 
 /** 给已存在的 context 追加 init script 的辅助（保持向后兼容） */
