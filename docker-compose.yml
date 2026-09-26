@@ -1,10 +1,13 @@
 services:
   # FlareSolverr：Cloudflare 质询/Turnstile 求解服务（官方仓库 2026 年仍在活跃维护）
-  # 仅内网访问（voxi-extractor 通过 http://flaresolverr:8191/v1 调用），不对外暴露端口
+  # ⚠️ 默认不启动（可选 profile）：已单独部署 FlareSolverr 的用户直接在 .env 里把
+  # FLARESOLVERR_URL 指向自己的实例即可（如 http://host.docker.internal:8191/v1）。
+  # 想用内置容器时：docker compose --profile flaresolverr up -d
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: voxi-flaresolverr
     restart: unless-stopped
+    profiles: ["flaresolverr"]
     environment:
       - TZ=${TZ:-Europe/London}
       - LOG_LEVEL=${FS_LOG_LEVEL:-info}
@@ -53,3 +56,6 @@ services:
     volumes:
       # 账号/结果/浏览器会话/截图 全部持久化
       - ./data:/app/data
+    extra_hosts:
+      # 让容器内可用 http://host.docker.internal:8191 访问宿主机上单独部署的 FlareSolverr（Linux 必需）
+      - "host.docker.internal:host-gateway"

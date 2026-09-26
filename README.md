@@ -266,8 +266,11 @@ Resin 粘性代理: Platform=Default Account=acc_xxxx（http://127.0.0.1:2260/**
 
 登录被 Cloudflare/Turnstile 拦截时，自动多一次兜底重试：先让 [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)（undetected-chromedriver 过质询服务，官方仓库 2026 年仍在活跃维护，v3.5+ 支持 Turnstile）打开站点过掉质询，拿到 `cf_clearance` 等 Cookie + 它所用的 userAgent，再用**同一 UA** 启动 Playwright 注入这些 Cookie 重试登录（cf_clearance 绑定 UA + 出口 IP，两边必须一致；开了 Resin/代理时 FlareSolverr 会自动走同一代理）。
 
-- **Docker Compose 部署默认启用**：compose 里已内置 `flaresolverr` 服务容器（仅内网访问，不对外暴露端口），无需额外配置
-- **本地/独立部署**：自己跑一个 FlareSolverr（如 `docker run -d -p 8191:8191 ghcr.io/flaresolverr/flaresolverr:latest`），然后在 `.env` 设 `FLARESOLVERR_URL=http://127.0.0.1:8191/v1`
+- **单独部署 FlareSolverr（推荐）**：自己跑一个 FlareSolverr（如 `docker run -d -p 8191:8191 ghcr.io/flaresolverr/flaresolverr:latest` 或直接跑源码），然后在 `.env` 设对应地址：
+  - voxi 在 Docker 里、FS 在宿主机：`FLARESOLVERR_URL=http://host.docker.internal:8191/v1`（compose 已配好 host-gateway 映射）
+  - voxi 在 Docker 里、FS 在其他机器：`FLARESOLVERR_URL=http://<那台机器IP>:8191/v1`
+  - voxi 本地直接跑（`npm start`）：`FLARESOLVERR_URL=http://127.0.0.1:8191/v1`
+- **用 compose 内置容器**（懒人版）：`docker compose --profile flaresolverr up -d --build`，地址填 `http://flaresolverr:8191/v1`（仅内网，不对外暴露端口）
 - **关闭**：`.env` 里设 `FLARESOLVERR_URL=off`
 
 触发时机：仅当首次登录失败且错误信息命中 Cloudflare/Turnstile 相关特征时才重试一次，正常流程零开销。日志中会看到 `FlareSolverr 预热中…` / `已预注入 N 条 Cookie` 等记录。注意它与 CloakBrowser、Cookie 导入是互补关系：FlareSolverr 能过的是 Cloudflare 整页质询并预热 Cookie，登录表单内的 Turnstile 交互仍依赖主引擎或导入 Cookie。
