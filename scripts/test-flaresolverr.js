@@ -13,14 +13,18 @@ const srv = http.createServer((req, res) => {
     req.on('data', c => (body += c));
     req.on('end', () => {
       const j = JSON.parse(body);
-      console.log('收到请求: cmd=%s returnOnlyCookies=%s maxTimeout=%s proxy=%s',
-        j.cmd, j.returnOnlyCookies, j.maxTimeout, JSON.stringify(j.proxy || null));
+      const isLogin = /accounts\./.test(j.url);
+      console.log('收到请求: cmd=%s url=%s proxy=%s', j.cmd, j.url, JSON.stringify(j.proxy || null));
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({
         status: 'ok',
         solution: {
-          url: 'https://www.studentbeans.com/uk',
-          cookies: [
+          url: j.url,
+          cookies: isLogin ? [
+            // 登录域：新的 cf_clearance（同名不同域）+ accounts 独有 cookie
+            { name: 'cf_clearance', value: 'login_tok', domain: 'accounts.studentbeans.com', path: '/', expiry: 1993456000, secure: true },
+            { name: 'accounts_cf_bm', value: 'x1', domain: 'accounts.studentbeans.com', path: '/' },
+          ] : [
             { name: 'cf_clearance', value: 'tok123', domain: '.studentbeans.com', path: '/', expiry: 1993456000, httpOnly: true, secure: true, sameSite: 'no_restriction' },
             { name: 'sb_session', value: 's1', domain: '.studentbeans.com', path: '/', expires: -1 },
           ],
@@ -39,7 +43,7 @@ srv.listen(18191, '127.0.0.1', async () => {
     console.log('isEnabled:', f.isEnabled());
     const w = await f.warm(null, 'acc_test');
     console.log('warm 结果: %d 条 cookie, UA=%s', w.cookies.length, w.userAgent);
-    console.log('cookie[0]:', JSON.stringify(w.cookies[0]));
+    for (const c of w.cookies) console.log('  -', c.name, '@', c.domain, '=', c.value);
 
     // off 禁用逻辑
     process.env.FLARESOLVERR_URL = 'off';

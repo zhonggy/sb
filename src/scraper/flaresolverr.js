@@ -115,6 +115,8 @@ async function solve(url, opts = {}) {
 
 /**
  * 为某个账号做「预热」：健康检查 → 按浏览器同款代理让 FlareSolverr 过质询
+ * 先解主站（主路径），再解登录域（best-effort：登录表单的 Turnstile 挂在 accounts
+ * 子域，预热它的 cf_clearance/__cf_bm 能提高 widget 在我们浏览器里的加载成功率）
  * @returns {Promise<{cookies, userAgent}|null>} 失败/不可用返回 null（不抛错，不阻断主流程）
  */
 async function warm(job, accountId) {
@@ -129,23 +131,39 @@ async function warm(job, accountId) {
   // 必须与浏览器同一出口 IP，否则 cf_clearance 无效。
   const proxyUrl = resin.isEnabled() ? resin.forwardProxyUrl(accountId) : (config.proxyUrl || null);
   log(job, 'info', `FlareSolverr 预热中: ${config.siteUrl}${proxyUrl ? '（与浏览器同代理出口）' : '（直连）'}…`);
+  let sol;
   try {
-    const sol = await solve(config.siteUrl, { proxyUrl });
-    if (!sol.cookies.length) {
-      log(job, 'warn', 'FlareSolverr 预热完成但未返回 Cookie，放弃注入');
-      return null;
-    }
-    log(job, 'info', `FlareSolverr 预热完成: ${sol.cookies.length} 条 Cookie（${sol.cookies.map(c => c.name).slice(0, 12).join(', ')}）`);
-    if (!sol.userAgent) {
-      log(job, 'warn', 'FlareSolverr 未返回 userAgent，cf_clearance 可能因 UA 不匹配而失效');
-    } else {
-      log(job, 'info', `浏览器将复用 FlareSolverr 的 UA: ${sol.userAgent}`);
-    }
-    return sol;
+    sol = await solve(config.siteUrl, { proxyUrl });
   } catch (e) {
     log(job, 'warn', `FlareSolverr 预热失败: ${String(e.message || e).slice(0, 200)}`);
     return null;
   }
+  if (!sol.cookies.length) {
+    log(job, 'warn', 'FlareSolverr 预热完成但未返回 Cookie，放弃注入');
+    return null;
+  }
+
+  // best-effort：再解一次登录域（失败不影响主站 Cookie 注入）
+  try {
+    const loginSol = await solve(config.loginUrl, { proxyUrl });
+    if (loginSol.cookies.length) {
+      const merged = new Map(sol.cookies.map(c => [`${c.name}|${c.domain}`, c]));
+      for (const c of loginSol.cookies) merged.set(`${c.name}|${c.domain}`, c);
+      const before = sol.cookies.length;
+      sol.cookies = [...merged.values()];
+      log(job, 'info', `登录域预热完成：合并后共 ${sol.cookies.length} 条 Cookie（主站 ${before} + 登录域增量）`);
+    }
+  } catch (e) {
+    log(job, 'info', `登录域预热未成功（不影响主站 Cookie 注入）: ${String(e.message || e).slice(0, 150)}`);
+  }
+
+  log(job, 'info', `FlareSolverr 预热完成: ${sol.cookies.length} 条 Cookie（${sol.cookies.map(c => c.name).slice(0, 12).join(', ')}）`);
+  if (!sol.userAgent) {
+    log(job, 'warn', 'FlareSolverr 未返回 userAgent，cf_clearance 可能因 UA 不匹配而失效');
+  } else {
+    log(job, 'info', `浏览器将复用 FlareSolverr 的 UA: ${sol.userAgent}`);
+  }
+  return sol;
 }
 
 module.exports = { isEnabled, health, solve, warm, toPlaywrightCookies };
