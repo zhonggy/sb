@@ -19,6 +19,14 @@ RUN npm ci --omit=dev
 # 拷贝源码
 COPY src ./src
 COPY public ./public
+# cf-autoclick（Turnstile 自动点击）扩展：HEADLESS=false + Xvfb 时自动加载
+COPY extension ./extension
+
+# Xvfb：容器内跑 headed 浏览器（HEADLESS=false）的虚拟显示。
+# 实测：Turnstile widget 对 headless Chromium 直接拒绝渲染（iframe 都不出现），
+# 对 headed 真 Chromium 可无感/自动点击通过——与桌面版（系统 Chrome）行为一致。
+RUN apt-get update && apt-get install -y --no-install-recommends xvfb \
+    && rm -rf /var/lib/apt/lists/*
 
 # CloakBrowser 隐身 Chromium 二进制预下载
 # - 传了 CLOAKBROWSER_LICENSE_KEY（build-arg）→ 下载对应 license 的最新版
@@ -41,4 +49,4 @@ EXPOSE 3920
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3920)+'/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "src/server.js"]
+CMD ["xvfb-run", "-a", "-s", "-screen 0 1366x900x24", "node", "src/server.js"]

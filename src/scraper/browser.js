@@ -148,6 +148,8 @@ async function launchPlaywrightContext(accountId, opts = {}) {
       '--disable-dev-shm-usage',
       '--disable-infobars',
       '--window-size=1366,900',
+      // 容器内 headed（Xvfb 软渲染）时禁 GPU，避免 WebGL/合成器崩溃
+      ...(config.headless ? [] : ['--disable-gpu']),
       ...extensionArgs(),
     ],
     ignoreDefaultArgs: ['--enable-automation', '--disable-extensions'],

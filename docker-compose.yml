@@ -33,6 +33,9 @@ services:
       # ===== 可选配置 =====
       - TZ=${TZ:-Europe/London}
       - PORT=3920
+      # 无头模式。⚠️ 服务器过 Turnstile 推荐 false：镜像已内置 Xvfb 虚拟显示 +
+      # cf-autoclick 扩展，headed Chromium 与桌面版（实测可过）行为一致；
+      # headless 下 Turnstile widget 会拒绝渲染（iframe 都不出现）
       - HEADLESS=${HEADLESS:-true}
       # 浏览器渠道（playwright 引擎用）：chromium = 完整版 Chromium（新无头模式，比默认
       # headless shell 更难被 Cloudflare 识别）；置空则用 Playwright 默认

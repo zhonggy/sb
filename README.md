@@ -50,6 +50,20 @@ npm start                                      # 默认 http://localhost:3920
 
 > Windows 若无法下载 Playwright Chromium，可设 `PW_CHANNEL=chrome` 复用本机 Chrome。
 
+## 🥅 服务器过 Turnstile（重要）
+
+实测：登录表单里的 Turnstile widget 对 **headless** Chromium 直接拒绝渲染（连 iframe 都不出现，提交按钮永远禁用）；对 **headed**（有界面）Chromium 可无感通过或被 cf-autoclick 扩展自动点掉——与桌面版（系统 Chrome）行为一致。因此服务器 Docker 部署建议：
+
+```bash
+# .env 里设
+HEADLESS=false
+
+# 重建（镜像已内置 Xvfb 虚拟显示 + extension/ 的 cf-autoclick 扩展）
+docker compose up -d --build
+```
+
+镜像 CMD 用 `xvfb-run` 包裹，`HEADLESS=false` 时浏览器渲染到虚拟屏，无需 VNC；`HEADLESS=true` 时同样兼容（虚拟屏闲置）。FlareSolverr 兜底（见下文）与它互补：预热 Cookie 降低 CF 拦截概率，headed+扩展解决 widget 渲染。
+
 ## 📖 使用流程
 
 1. **添加账号**：控制台左侧填 `备注名 / 邮箱 / 密码` → 添加
